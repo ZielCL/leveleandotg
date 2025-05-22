@@ -36,7 +36,6 @@ def run_keepalive_server():
     server = HTTPServer(("0.0.0.0", port), KeepAliveHandler)
     server.serve_forever()
 
-# Arranca el servidor en hilo daemon
 threading.Thread(target=run_keepalive_server, daemon=True).start()
 
 # ─── Setup ────────────────────────────────────────────────────────
@@ -131,9 +130,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Para habilitarme en tu grupo:\n"
         "1. Agrégame como administrador.\n"
         "2. Usa /levsettema <thread_id> para elegir el hilo donde enviar alertas.\n"
-        "   – En Telegram Desktop/Web, abre el tema deseado.\n"
-        "   – Copia enlace de un mensaje (clic derecho → Copiar enlace).\n"
-        "   – El número antes de la segunda barra es el thread_id.\n"
         "3. ¡Listo! Cada mensaje sumará XP y celebraré los niveles ahí.\n\n"
         "Escribe /levcomandos para ver comandos disponibles."
     )
@@ -203,27 +199,38 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Mensajes ─────────────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not msg.text:
+    if not msg:
         return
     chat, user = msg.chat, msg.from_user
     if chat.type not in ("group","supergroup") or user.is_bot:
         return
+
     cfg = await config_collection.find_one({"_id": chat.id})
     if not cfg:
         return
     thread_id = cfg["thread_id"]
     key = make_key(chat.id, user.id)
-    doc = await xp_collection.find_one({"_id": key})
-    xp, lvl = (doc["xp"], doc["nivel"]) if doc else (0,0)
-    xp += random.randint(7, 10)
+    record = await xp_collection.find_one({"_id": key})
+    xp = record["xp"]    if record else 0
+    lvl = record["nivel"] if record else 0
+
+    # Ajustamos ganancia: 7–10 para texto, 20–30 para fotos
+    if msg.photo:
+        ganancia = random.randint(20, 30)
+    else:
+        ganancia = random.randint(7, 10)
+
+    xp += ganancia
     new_lvl = calcular_nivel(xp)
     if new_lvl > 100:
         new_lvl = 100
+
     await xp_collection.update_one(
         {"_id": key},
         {"$set": {"xp": xp, "nivel": new_lvl}},
         upsert=True
     )
+
     if new_lvl > lvl:
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
         txt = f"🎉🎉 <b>¡Felicidades!</b> {mention} ha alcanzado el nivel <b>{new_lvl}</b> 🚀🎊"
@@ -236,23 +243,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── Main ─────────────────────────────────────────────────────────
 def main():
-    app = ApplicationBuilder()\
-        .token(BOT_TOKEN)\
-        .post_init(on_startup)\
+    app = ApplicationBuilder() \
+        .token(BOT_TOKEN) \
+        .post_init(on_startup) \
         .build()
 
-    # Comandos
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("levsettema",  levsettema))
     app.add_handler(CommandHandler("levperfil",   levperfil))
     app.add_handler(CommandHandler("levtop",      levtop))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
     app.add_handler(CallbackQueryHandler(levtop_callback, pattern=r"^levtop_\d+$"))
-
-    # Mensajes
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
