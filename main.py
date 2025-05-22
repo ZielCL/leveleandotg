@@ -107,7 +107,7 @@ async def on_startup(app):
     await app.bot.set_my_commands([
         BotCommand("start",      "Cómo instalar y configurar el bot"),
         BotCommand("levsettema", "Configura hilo de alertas de nivel (admin)"),
-        BotCommand("levalerta",  "Define premio al llegar a un nivel (admin)"),
+        BotCommand("levalerta",  "Define premio/msje al llegar a un nivel (admin)"),
         BotCommand("levperfil",  "Muestra tu XP, nivel y posición"),
         BotCommand("levtop",     "Ranking XP con paginado"),
         BotCommand("levcomandos","Lista comandos disponibles"),
@@ -127,9 +127,10 @@ async def on_startup(app):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 ¡Hola! Soy LeveleandoTG.\n"
+        "Para habilitarme en tu grupo:\n"
         "1️⃣ Agrégame como admin.\n"
         "2️⃣ /levsettema <thread_id> para definir hilo de alertas.\n"
-        "3️⃣ /levalerta <nivel> <mensaje> para premio por nivel.\n\n"
+        "3️⃣ /levalerta <nivel> <mensaje> para premio/msje por nivel.\n\n"
         "Escribe /levcomandos para ver todos los comandos."
     )
 
@@ -221,7 +222,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 Comandos disponibles:\n"
         "/start         — Cómo instalar y configurar el bot\n"
         "/levsettema    — Define hilo de alertas (admin)\n"
-        "/levalerta     — Define premio por nivel (admin)\n"
+        "/levalerta     — Define premio/msje por nivel (admin)\n"
         "/levperfil     — Muestra tu XP, nivel y posición\n"
         "/levtop        — Ranking XP con paginado\n"
         "/levcomandos   — Lista de comandos\n"
