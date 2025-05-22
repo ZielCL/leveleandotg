@@ -108,7 +108,7 @@ async def on_startup(app):
     await app.bot.set_my_commands([
         BotCommand("start",       "Cómo instalar y configurar el bot"),
         BotCommand("levsettema",  "Configura dónde enviar alertas de niveles (admin)"),
-        BotCommand("levperfil",   "Muestra tu XP y nivel actuales"),
+        BotCommand("levperfil",   "Muestra tu XP, nivel y posición"),
         BotCommand("levtop",      "Ranking XP con paginado"),
         BotCommand("levcomandos", "Lista comandos disponibles"),
     ])
@@ -162,9 +162,28 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
     key = make_key(chat.id, user.id)
+
+    # Obtener XP y nivel
     doc = await xp_collection.find_one({"_id": key})
-    xp, lvl = (doc["xp"], doc["nivel"]) if doc else (0,0)
-    await update.message.reply_text(f"{user.full_name}:\n• XP: {xp}\n• Nivel: {lvl}")
+    xp  = doc["xp"]    if doc else 0
+    lvl = doc["nivel"] if doc else 0
+
+    # Calcular posición en ranking
+    prefix = f"{chat.id}_"
+    mayores = await xp_collection.count_documents({
+        "_id": {"$regex": f"^{prefix}"},
+        "xp":  {"$gt": xp}
+    })
+    posicion = mayores + 1
+    total = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+
+    # Responder
+    await update.message.reply_text(
+        f"{user.full_name}:\n"
+        f"• XP: {xp}\n"
+        f"• Nivel: {lvl}\n"
+        f"• Posición: {posicion}/{total}"
+    )
 
 # ─── /levtop ──────────────────────────────────────────────────────
 async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,7 +209,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 Comandos disponibles:\n"
         "/start        — Cómo instalar y configurar el bot\n"
         "/levsettema   — Configura hilo de alertas de nivel (admin)\n"
-        "/levperfil    — Muestra tu XP y nivel\n"
+        "/levperfil    — Muestra tu XP, nivel y posición\n"
         "/levtop       — Ranking XP con paginado\n"
         "/levcomandos  — Lista de comandos\n"
     )
@@ -214,7 +233,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     xp = record["xp"]    if record else 0
     lvl = record["nivel"] if record else 0
 
-    # Ajustamos ganancia: 7–10 para texto, 20–30 para fotos
+    # Ajustamos ganancia: 7–10 texto, 20–30 foto
     if msg.photo:
         ganancia = random.randint(20, 30)
     else:
@@ -260,4 +279,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
