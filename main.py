@@ -105,6 +105,7 @@ async def on_startup(app):
         BotCommand("start",      "Cómo configurar el bot"),
         BotCommand("levsettema", "Define hilo de alertas (admin)"),
         BotCommand("levalerta",  "Define premio por nivel (admin)"),
+        BotCommand("levalertalist", "Lista alertas creadas"),
         BotCommand("levperfil",  "Muestra XP, nivel, posición y XP faltante"),
         BotCommand("levtop",     "Ranking XP con paginado"),
         BotCommand("levcomandos","Lista de comandos"),
@@ -162,12 +163,28 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ Alerta guardada: {doc!r}")
     await update.message.reply_text(f"✅ Premio guardado para nivel {nivel}.")
 
+async def levalertalist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    # Solo admins
+    m = await context.bot.get_chat_member(chat.id, update.effective_user.id)
+    if m.status not in ("administrator","creator"):
+        return await update.message.reply_text("❌ Solo admins pueden ver la lista de alertas.")
+    cursor = alerts_collection.find({"_id": {"$regex": f"^{chat.id}_"}})
+    docs = await cursor.to_list(length=None)
+    if not docs:
+        return await update.message.reply_text("🚫 No hay alertas configuradas.")
+    text = "📋 Alertas configuradas:\n"
+    for doc in docs:
+        _, lvl = doc["_id"].split("_", 1)
+        text += f"• Nivel {lvl}: {doc.get('message')}\n"
+    await update.message.reply_text(text)
+
 async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
     key = make_key(chat.id, user.id)
     rec = await xp_collection.find_one({"_id": key})
-    xp  = rec["xp"]    if rec else 0
-    lvl = rec["nivel"] if rec else 0
+    xp  = rec.get("xp", 0)
+    lvl = rec.get("nivel", 0)
 
     prefix  = f"{chat.id}_"
     mayores = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}, "xp": {"$gt": xp}})
@@ -204,6 +221,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start\n"
         "/levsettema\n"
         "/levalerta\n"
+        "/levalertalist\n"
         "/levperfil\n"
         "/levtop\n"
         "/levcomandos"
@@ -219,11 +237,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     key = make_key(chat.id, user.id)
     rec = await xp_collection.find_one({"_id": key})
-    xp  = rec["xp"]    if rec else 0
-    lvl = rec["nivel"] if rec else 0
+    xp  = rec.get("xp", 0)
+    lvl = rec.get("nivel", 0)
 
     # Ganancia aleatoria
-    gan     = random.randint(20,30) if msg.photo else random.randint(7,10)
+    gan = random.randint(20,30) if msg.photo else random.randint(7,10)
     xp_nivel = xp + gan
     req      = xp_para_subir(lvl)
 
@@ -268,6 +286,7 @@ def main():
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("levsettema",  levsettema))
     app.add_handler(CommandHandler("levalerta",   levalerta))
+    app.add_handler(CommandHandler("levalertalist", levalertalist))
     app.add_handler(CommandHandler("levperfil",   levperfil))
     app.add_handler(CommandHandler("levtop",      levtop))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
