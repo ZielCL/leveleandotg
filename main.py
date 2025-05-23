@@ -92,8 +92,12 @@ async def on_startup(app):
     logger.info("✅ Token cargado")
     await client.admin.command("ping")
     logger.info("✅ Conectado a MongoDB Atlas")
-    logger.info("🤖 Bot operativo")
 
+    # <<< Elimina cualquier webhook previo y borra updates pendientes >>>
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    logger.info("✅ Webhook borrado, listo para polling")
+
+    logger.info("🤖 Bot operativo")
     await app.bot.set_my_commands([
         BotCommand("start",      "Cómo instalar y configurar el bot"),
         BotCommand("levsettema", "Configura hilo de alertas de nivel (admin)"),
@@ -238,7 +242,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     xp        = rec["xp"]    if rec else 0
     lvl       = rec["nivel"] if rec else 0
 
-    gan = random.randint(20,30) if msg.photo else random.randint(7,10)
+    gan = random.randint(30,50) if msg.photo else random.randint(7,10)
     xp_nivel = xp + gan
     req      = xp_para_subir(lvl)
 
@@ -285,6 +289,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
