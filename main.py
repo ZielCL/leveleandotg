@@ -16,7 +16,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from telegram.error import Forbidden
+from telegram.error import Forbidden, Conflict
 
 # ─── Keep-Alive Server ────────────────────────────────────────────
 class KeepAliveHandler(BaseHTTPRequestHandler):
@@ -51,7 +51,6 @@ alerts_collection = db.level_alerts
 
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
-    # Nivel 1 → 100 XP; sube de 7 XP adicionales por nivel
     return 100 + 7 * (nivel - 1)
 
 def make_key(chat_id: int, user_id: int) -> str:
@@ -59,199 +58,175 @@ def make_key(chat_id: int, user_id: int) -> str:
 
 async def send_top_page(bot, chat_id: int, page: int):
     prefix = f"{chat_id}_"
-    total = await xp_collection.count_documents({
-        "_id": {"$regex": f"^{prefix}"}
-    })
-    pages = max(1, (total + 9)//10)
-    page = max(1, min(page, pages))
-    cursor = xp_collection.find({
-        "_id": {"$regex": f"^MONTH_{prefix}"}
-    }).sort("xp_month",-1).skip((page-1)*10).limit(10)
-    docs = await cursor.to_list(10)
+    total  = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+    pages  = max(1, (total+9)//10)
+    page   = max(1, min(page, pages))
+    docs   = await xp_collection.find({"_id": {"$regex": f"^{prefix}"}})\
+                .sort("xp",-1).skip((page-1)*10).limit(10).to_list(10)
 
-    text = f"🏆 Ranking Mensual (página {page}/{pages}):\n"
-    for i, doc in enumerate(docs, start=(page-1)*10+1):
-        _, uid_str = doc["_id"].split("_",2)[1:]
-        uid = int(uid_str)
+    text = f"🏆 XP Ranking (página {page}/{pages}):\n"
+    for i, d in enumerate(docs, start=(page-1)*10+1):
+        uid = int(d["_id"].split("_",1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
-        text += f"{i}. {name} — Nivel {doc['lvl_month']}, {doc['xp_month']} XP\n"
+        text += f"{i}. {name} — Nivel {d['nivel']}, {d['xp']} XP\n"
 
-    btns = []
+    btns=[]
     if page>1:    btns.append(InlineKeyboardButton("◀️", callback_data=f"levtop_{page-1}"))
     if page<pages:btns.append(InlineKeyboardButton("▶️", callback_data=f"levtop_{page+1}"))
     kb = InlineKeyboardMarkup([btns]) if btns else None
     return text, kb
 
-# ─── Startup ──────────────────────────────────────────────────────
+# ─── on_startup ───────────────────────────────────────────────────
 async def on_startup(app):
-    logger.info("✅ Bot operativo")
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    logger.info("✅ Bot arrancado")
+    # Borramos webhook y descartamos updates pendientes
+    try:
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Webhook borrado ✔ drop_pending_updates=True")
+    except Exception as e:
+        logger.warning(f"⚠️ Al borrar webhook: {e}")
+
+    # Registramos comandos
     await app.bot.set_my_commands([
         BotCommand("start",      "Cómo instalar y configurar el bot"),
-        BotCommand("levsettema", "Configura hilo de alertas de nivel (admin)"),
+        BotCommand("levsettema", "Configura hilo de alertas (admin)"),
         BotCommand("levalerta",  "Define premio por nivel (admin)"),
-        BotCommand("levperfil",  "Muestra XP/nivel mensual y total"),
-        BotCommand("levtop",     "Ranking mensual con paginado"),
-        BotCommand("levcomandos","Lista de comandos disponibles"),
+        BotCommand("levperfil",  "Muestra XP/nivel y XP faltante"),
+        BotCommand("levtop",     "Ranking XP con paginado"),
+        BotCommand("levcomandos","Lista comandos"),
     ])
+
+    # Notificar a cada grupo configurado
     async for cfg in config_collection.find({}):
         try:
             await app.bot.send_message(cfg["_id"], "🤖 LeveleandoTG activo.")
         except Forbidden:
             await config_collection.delete_one({"_id": cfg["_id"]})
+            logger.warning(f"⚠️ Borrada config para {cfg['_id']} (bot expulsado)")
 
-# ─── /start ───────────────────────────────────────────────────────
+# ─── Handlers ─────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 ¡Hola! Soy LeveleandoTG.\n"
-        "1️⃣ Agrégame como admin en tu grupo.\n"
-        "2️⃣ Usa /levsettema <thread_id> para definir dónde mando alertas.\n"
-        "3️⃣ Usa /levalerta <nivel> <mensaje> para configurar premios.\n"
-        "Cada mes tu XP mensual se reinicia, pero guardo tu total histórico.\n"
-        "Escribe /levcomandos para ver los comandos."
+        "1️⃣ Agrégame como admin.\n"
+        "2️⃣ /levsettema <thread_id> para definir hilo de alertas.\n"
+        "3️⃣ /levalerta <nivel> <mensaje> para premios.\n"
+        "Escribe /levcomandos para verlos todos."
     )
 
-# ─── Handlers de configuración ────────────────────────────────────
 async def levsettema(update, ctx):
     chat, user = update.effective_chat, update.effective_user
     if chat.type not in ("group","supergroup"): return
     mem = await ctx.bot.get_chat_member(chat.id, user.id)
     if mem.status not in ("administrator","creator"):
-        return await update.message.reply_text("❌ Solo administradores.")
+        return await update.message.reply_text("❌ Solo admins.")
     if not ctx.args or not ctx.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Uso: /levsettema <thread_id>\n"
-            "– En Desktop/Web, copia enlace de un mensaje → el número antes del segundo / es el thread_id."
+            "❌ Uso: `/levsettema <thread_id>`\n"
+            "– En Desktop/Web copia enlace de un mensaje → el número al final es thread_id."
         )
-    tid = int(ctx.args[0])
-    await config_collection.update_one({"_id":chat.id},{"$set":{"thread_id":tid}}, upsert=True)
-    await update.message.reply_text(f"✅ Hilo configurado: {tid}")
+    await config_collection.update_one(
+        {"_id": chat.id},
+        {"$set": {"thread_id": int(ctx.args[0])}},
+        upsert=True
+    )
+    await update.message.reply_text(f"✅ Hilo configurado: {ctx.args[0]}")
 
 async def levalerta(update, ctx):
     chat, user = update.effective_chat, update.effective_user
     if chat.type not in ("group","supergroup"): return
     mem = await ctx.bot.get_chat_member(chat.id, user.id)
     if mem.status not in ("administrator","creator"):
-        return await update.message.reply_text("❌ Solo administradores.")
+        return await update.message.reply_text("❌ Solo admins.")
     if len(ctx.args)<2 or not ctx.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
+        return await update.message.reply_text("❌ Uso: `/levalerta <nivel> <mensaje>`")
     lvl = int(ctx.args[0]); msg = " ".join(ctx.args[1:])
     await alerts_collection.update_one(
-        {"_id":f"{chat.id}_{lvl}"}, {"$set":{"message":msg}}, upsert=True
+        {"_id":f"{chat.id}_{lvl}"},
+        {"$set":{"message":msg}},
+        upsert=True
     )
-    await update.message.reply_text(f"✅ Premio configurado para nivel {lvl}.")
+    await update.message.reply_text(f"✅ Premio guardado para nivel {lvl}.")
 
-# ─── /levperfil ───────────────────────────────────────────────────
 async def levperfil(update, ctx):
     chat, user = update.effective_chat, update.effective_user
     key = make_key(chat.id, user.id)
-
-    # mes actual
-    ahora = datetime.datetime.utcnow()
-    mes_tag = ahora.strftime("%Y-%m")
-    rec = await xp_collection.find_one({"_id":key})
-    # si cambió mes, reinicio mensual
-    if not rec or rec.get("month")!=mes_tag:
-        await xp_collection.update_one(
-            {"_id":key},
-            {"$set":{"xp_month":0,"lvl_month":0,"month":mes_tag},
-             "$setOnInsert":{"xp_total":rec.get("xp_total",0),"lvl_total":rec.get("lvl_total",0)}},
-            upsert=True
-        )
-        xp_m=0; lvl_m=0; xp_t=rec.get("xp_total",0) if rec else 0; lvl_t=rec.get("lvl_total",0) if rec else 0
-    else:
-        xp_m = rec["xp_month"]; lvl_m = rec["lvl_month"]
-        xp_t = rec["xp_total"]; lvl_t = rec["lvl_total"]
-
-    # posición mensual
-    pref = f"MONTH_{chat.id}_"
-    mayores = await xp_collection.count_documents({
-        "_id": {"$regex":f"^{pref}"},
-        "xp_month": {"$gt": xp_m}
-    })
-    pos, tot = mayores+1, await xp_collection.count_documents({"_id":{"$regex":f"^{pref}"}})
-
-    falta = xp_para_subir(lvl_m) - xp_m if lvl_m<100 else 0
-
+    rec = await xp_collection.find_one({"_id":key}) or {}
+    xp, lvl = rec.get("xp",0), rec.get("nivel",0)
+    falt = max(0, xp_para_subir(lvl) - xp)
     await update.message.reply_text(
         f"{user.full_name}:\n"
-        f"📊 Mensual: {xp_m}/{xp_para_subir(lvl_m)} XP, Nivel {lvl_m}, Pos {pos}/{tot}\n"
-        f"🏅 Histórico: {xp_t} XP, Nivel {lvl_t}\n"
-        f"🔜 XP para siguiente nivel: {falta}"
+        f"• XP: {xp}\n"
+        f"• Nivel: {lvl}\n"
+        f"• Para siguiente nivel: {falt} XP"
     )
 
-# ─── /levtop ──────────────────────────────────────────────────────
 async def levtop(update, ctx):
-    chat=update.effective_chat
+    chat = update.effective_chat
     cfg = await config_collection.find_one({"_id":chat.id})
-    if not cfg: return await update.message.reply_text("❌ /levsettema primero.")
-    txt, kb = await send_top_page(ctx.bot, chat.id, page=1)
-    await update.message.reply_text(txt, reply_markup=kb, parse_mode="HTML")
+    if not cfg:
+        return await update.message.reply_text("❌ /levsettema primero.")
+    text, kb = await send_top_page(ctx.bot, chat.id, page=1)
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def levtop_cb(update, ctx):
-    q=update.callback_query; await q.answer()
-    chat=q.message.chat
-    pg=int(q.data.split("_")[1])
-    txt,kb=await send_top_page(ctx.bot, chat.id, pg)
-    await q.edit_message_text(txt, reply_markup=kb, parse_mode="HTML")
+    q = update.callback_query; await q.answer()
+    page = int(q.data.split("_",1)[1])
+    text, kb = await send_top_page(ctx.bot, q.message.chat.id, page)
+    await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
 
-# ─── Comandos y mensajes ───────────────────────────────────────────
 async def levcomandos(update, ctx):
-    cmds = (
+    await update.message.reply_text(
         "📜 Comandos:\n"
-        "/start, /levsettema, /levalerta\n"
-        "/levperfil, /levtop, /levcomandos\n"
+        "/start, /levsettema, /levalerta,\n"
+        "/levperfil, /levtop, /levcomandos"
     )
-    await update.message.reply_text(cmds)
 
 async def handle_message(update, ctx):
-    msg=update.message
+    msg = update.message
     if not msg or msg.from_user.is_bot: return
     chat, user = msg.chat, msg.from_user
     cfg = await config_collection.find_one({"_id":chat.id})
     if not cfg: return
     key = make_key(chat.id, user.id)
-    rec = await xp_collection.find_one({"_id":key})
-    ahora = datetime.datetime.utcnow().strftime("%Y-%m")
-    # reinicio mensual si aplica
-    if not rec or rec.get("month")!=ahora:
-        rec = {"xp_month":0,"lvl_month":0,"xp_total":rec.get("xp_total",0) if rec else 0,
-               "lvl_total":rec.get("lvl_total",0) if rec else 0,"month":ahora}
-    # ganancia
-    gan = random.randint(30,50) if msg.photo else random.randint(7,10)
-    xp_m = rec["xp_month"] + gan
-    xp_t = rec["xp_total"] + gan
-    lvl_m = rec["lvl_month"]
-    lvl_t = rec["lvl_total"]
-    # subir niveles
-    while lvl_m<100 and xp_m>=xp_para_subir(lvl_m):
-        xp_m -= xp_para_subir(lvl_m)
-        lvl_m+=1
-        lvl_t+=1
+    rec = await xp_collection.find_one({"_id":key}) or {"xp":0,"nivel":0}
+    xp, lvl = rec["xp"], rec["nivel"]
+    gain = random.randint(20,30) if msg.photo else random.randint(7,10)
+    xp += gain
+    new_lvl = lvl
+    while new_lvl<100 and xp>=xp_para_subir(new_lvl):
+        xp -= xp_para_subir(new_lvl)
+        new_lvl += 1
         # felicitación
-        thread=cfg["thread_id"]
-        mention=f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+        mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
         await ctx.bot.send_message(
-            chat.id, text=f"🎉 {mention} subió al nivel {lvl_m}!", parse_mode="HTML",
-            message_thread_id=thread
+            chat.id,
+            message_thread_id=cfg["thread_id"],
+            text=f"🎉 {mention} subió al nivel {new_lvl}!",
+            parse_mode="HTML"
         )
         # premio
-        alt=await alerts_collection.find_one({"_id":f"{chat.id}_{lvl_m}"})
+        alt = await alerts_collection.find_one({"_id":f"{chat.id}_{new_lvl}"})
         if alt:
-            await ctx.bot.send_message(chat.id, alt["message"], message_thread_id=thread)
-    # guardar
+            await ctx.bot.send_message(
+                chat.id,
+                message_thread_id=cfg["thread_id"],
+                text=alt["message"]
+            )
+    # guardamos
     await xp_collection.update_one(
         {"_id":key},
-        {"$set":{"xp_month":xp_m,"lvl_month":lvl_m,
-                 "xp_total":xp_t,"lvl_total":lvl_t,"month":ahora}},
+        {"$set":{"xp":xp,"nivel":new_lvl}},
         upsert=True
     )
 
+# ─── Main ─────────────────────────────────────────────────────────
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
+
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("levsettema",  levsettema))
     app.add_handler(CommandHandler("levalerta",   levalerta))
@@ -260,7 +235,12 @@ def main():
     app.add_handler(CommandHandler("levcomandos", levcomandos))
     app.add_handler(CallbackQueryHandler(levtop_cb, pattern=r"^levtop_\d+$"))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-    app.run_polling()
+
+    # Ejecutamos polling y capturamos 409 para que no corte la app
+    try:
+        app.run_polling()
+    except Conflict as e:
+        logger.error("🔄 Conflict 409: otro getUpdates activo. Delete webhook y reinicia.")
 
 if __name__ == "__main__":
     main()
