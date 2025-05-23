@@ -63,10 +63,10 @@ def make_key(chat_id: int, user_id: int) -> str:
 
 async def rollover_month(chat_id: int):
     """Cierra el mes: guarda top3 en stats y limpia XP mensual."""
-    top3 = await db_monthly.find({"_id": {"$regex": f"^{chat_id}_"}})\
+    top3 = await db_monthly.find({"_id": {"$regex": f"^{chat_id}_"}}) \
                            .sort("xp", -1).limit(3).to_list(3)
     for doc in top3:
-        uid = doc["_id"].split("_",1)[1]
+        uid = doc["_1"].split("_", 1)[1]
         await stats_collection.update_one(
             {"_id": f"{chat_id}_{uid}"}, {"$inc": {"top3_count": 1}}, upsert=True
         )
@@ -92,7 +92,7 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
     total  = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     pages  = max(1, math.ceil(total/10))
     page   = max(1, min(page, pages))
-    docs   = await collec.find({"_id": {"$regex": f"^{prefix}"}})\
+    docs   = await collec.find({"_id": {"$regex": f"^{prefix}"}}) \
                         .sort("xp", -1).skip((page-1)*10).limit(10).to_list(10)
 
     text = f"🏆 XP Ranking (página {page}/{pages}):\n"
@@ -155,7 +155,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🧵 /levsettema [thread_id]: establece el hilo de alertas."""
     chat, user = update.effective_chat, update.effective_user
-    if chat.type not in ("group","supergroup"): return
+    if chat.type not in ("group","supergroup"):
+        return
     m = await context.bot.get_chat_member(chat.id, user.id)
     if m.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
@@ -229,7 +230,6 @@ async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
 
     if data == "perfil_acum":
-        # Vista acumulada
         key = make_key(chat.id, user.id)
         rec = await xp_collection.find_one({"_id": key}) or {}
         xp_a, lvl_a = rec.get("xp",0), rec.get("nivel",1)
@@ -248,7 +248,6 @@ async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btn = InlineKeyboardButton("⬅️ Mensual", callback_data="perfil_mes")
 
     else:
-        # Vista mensual
         await ensure_monthly_state(chat.id)
         key = make_key(chat.id, user.id)
         rec = await db_monthly.find_one({"_id": key}) or {}
@@ -309,14 +308,23 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja mensajes normales, asigna XP y sube de nivel."""
     msg = update.message
-    if not msg or msg.from_user.is_bot: return
+    if not msg or msg.from_user.is_bot:
+        return
     chat, user = msg.chat, msg.from_user
     cfg = await config_collection.find_one({"_id": chat.id})
-    if not cfg: return
+    if not cfg:
+        return
 
     key = make_key(chat.id, user.id)
-    rec = await xp_collection.find_one({"_id": key}) or {"xp":0, "nivel":0}
-    xp, lvl = rec["xp"], rec["nivel"]
+    rec = await xp_collection.find_one({"_id": key})
+    if rec is None:
+        # Inicializamos documento si no existe
+        xp, lvl = 0, 0
+        await xp_collection.insert_one({"_id": key, "xp": xp, "nivel": lvl})
+        await db_monthly.insert_one({"_id": key, "xp": xp, "nivel": lvl})
+    else:
+        xp  = rec.get("xp", 0)
+        lvl = rec.get("nivel", 0)
 
     gan = random.randint(20,30) if msg.photo else random.randint(7,10)
     xp_nuevo = xp + gan
@@ -326,8 +334,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lvl += 1
         xp_nuevo = 0
         falta = xp_para_subir(lvl)
-        await xp_collection.update_one({"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True)
-        await db_monthly.update_one({"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True)
+        await xp_collection.update_one(
+            {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
+        )
+        await db_monthly.update_one(
+            {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
+        )
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
         await context.bot.send_message(
             chat_id=chat.id,
@@ -338,12 +350,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
         if alt and alt.get("message"):
-            await context.bot.send_message(chat_id=chat.id,
-                                           message_thread_id=cfg["thread_id"],
-                                           text=alt["message"])
+            await context.bot.send_message(
+                chat_id=chat.id,
+                message_thread_id=cfg["thread_id"],
+                text=alt["message"]
+            )
     else:
-        await xp_collection.update_one({"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True)
-        await db_monthly.update_one({"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True)
+        await xp_collection.update_one(
+            {"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True
+        )
+        await db_monthly.update_one(
+            {"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True
+        )
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
