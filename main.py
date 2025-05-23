@@ -54,17 +54,12 @@ client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 db = client.mi_base_de_datos
 xp_collection     = db.xp_usuarios
 config_collection = db.temas_configurados
-alerts_collection = db.level_alerts      # nueva colección para mensajes de premio
+alerts_collection = db.level_alerts      # colección para mensajes de premio
 
 # ─── Helpers ──────────────────────────────────────────────────────
-def calcular_nivel(xp: int) -> int:
-    nivel = 0
-    for i in range(1, 101):
-        if xp >= 5*i*i + 50*i:
-            nivel = i
-        else:
-            break
-    return nivel
+def xp_para_subir(nivel: int) -> int:
+    """XP necesaria para pasar del nivel 'nivel' al siguiente."""
+    return round(0.18 * nivel**2 + 5 * nivel)
 
 def make_key(chat_id: int, user_id: int) -> str:
     return f"{chat_id}_{user_id}"
@@ -74,8 +69,8 @@ async def send_top_page(bot, chat_id: int, page: int):
     total = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
     pages = max(1, math.ceil(total/10))
     page = max(1, min(page, pages))
-    cursor = xp_collection.find({"_id": {"$regex": f"^{prefix}"}})\
-        .sort("xp",-1).skip((page-1)*10).limit(10)
+    cursor = xp_collection.find({"_id": {"$regex": f"^{prefix}"}}) \
+                          .sort("xp", -1).skip((page-1)*10).limit(10)
     docs = await cursor.to_list(10)
 
     text = f"🏆 XP Ranking (página {page}/{pages}):\n"
@@ -107,18 +102,18 @@ async def on_startup(app):
     await app.bot.set_my_commands([
         BotCommand("start",      "Cómo instalar y configurar el bot"),
         BotCommand("levsettema", "Configura hilo de alertas de nivel (admin)"),
-        BotCommand("levalerta",  "Define premio/msje al llegar a un nivel (admin)"),
+        BotCommand("levalerta",  "Define premio por nivel (admin)"),
         BotCommand("levperfil",  "Muestra tu XP, nivel y posición"),
         BotCommand("levtop",     "Ranking XP con paginado"),
-        BotCommand("levcomandos","Lista comandos disponibles"),
+        BotCommand("levcomandos","Lista de comandos disponibles"),
     ])
     logger.info("✅ Comandos registrados")
 
-    # Mensaje de arranque en cada grupo configurado
     async for cfg in config_collection.find({}):
         chat_id, thread_id = cfg["_id"], cfg["thread_id"]
         await app.bot.send_message(chat_id, "🤖 LeveleandoTG activo.")
-        await app.bot.send_message(chat_id,
+        await app.bot.send_message(
+            chat_id,
             message_thread_id=thread_id,
             text="🎉 Alertas de nivel activas."
         )
@@ -127,10 +122,10 @@ async def on_startup(app):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 ¡Hola! Soy LeveleandoTG.\n"
-        "Para habilitarme en tu grupo:\n"
         "1️⃣ Agrégame como admin.\n"
-        "2️⃣ /levsettema <thread_id> para definir hilo de alertas.\n"
-        "3️⃣ /levalerta <nivel> <mensaje> para premio/msje por nivel.\n\n"
+        "2️⃣ Usa /levsettema <thread_id> para elegir el hilo de alertas.\n"
+        "   • En Desktop/Web copia enlace de un mensaje → el número final es el thread_id.\n"
+        "3️⃣ Usa /levalerta <nivel> <mensaje> para definir premio al subir.\n\n"
         "Escribe /levcomandos para ver todos los comandos."
     )
 
@@ -143,7 +138,16 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if member.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo administradores pueden usarlo.")
     if not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levsettema <thread_id>")
+        return await update.message.reply_text(
+            "❌ Uso correcto: /levsettema <thread_id>\n\n"
+            "🔍 Cómo obtener el thread_id:\n"
+            "1. En Telegram Desktop/Web, abre el grupo y selecciona el tema deseado.\n"
+            "2. Haz clic derecho en un mensaje → Copiar enlace.\n"
+            "3. El enlace será algo como:\n"
+            "   https://t.me/c/1234567890/90\n"
+            "   ⇒ El número final (aquí “90”) es el thread_id.\n"
+            "Ejemplo: /levsettema 90"
+        )
     thread_id = int(context.args[0])
     await config_collection.update_one(
         {"_id": chat.id},
@@ -164,32 +168,28 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
-    # Guardar en Mongo
     await alerts_collection.update_one(
         {"_id": f"{chat.id}_{nivel}"},
         {"$set": {"message": mensaje}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Premio para nivel {nivel} guardado.")
+    await update.message.reply_text(f"✅ Premio guardado para nivel {nivel}.")
 
 # ─── /levperfil ───────────────────────────────────────────────────
 async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
     key = make_key(chat.id, user.id)
-
-    # Obtener XP y nivel
     doc = await xp_collection.find_one({"_id": key})
     xp  = doc["xp"]    if doc else 0
     lvl = doc["nivel"] if doc else 0
 
-    # Calcular posición en ranking
     prefix = f"{chat.id}_"
     mayores = await xp_collection.count_documents({
         "_id": {"$regex": f"^{prefix}"},
         "xp":  {"$gt": xp}
     })
     posicion = mayores + 1
-    total = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+    total    = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
 
     await update.message.reply_text(
         f"{user.full_name}:\n"
@@ -207,7 +207,7 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text, kb = await send_top_page(context.bot, chat.id, page=1)
     await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
-# ─── Callback para paginado ──────────────────────────────────────
+# ─── Callback paginado ────────────────────────────────────────────
 async def levtop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -222,22 +222,19 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 Comandos disponibles:\n"
         "/start         — Cómo instalar y configurar el bot\n"
         "/levsettema    — Define hilo de alertas (admin)\n"
-        "/levalerta     — Define premio/msje por nivel (admin)\n"
+        "/levalerta     — Define premio por nivel (admin)\n"
         "/levperfil     — Muestra tu XP, nivel y posición\n"
         "/levtop        — Ranking XP con paginado\n"
         "/levcomandos   — Lista de comandos\n"
     )
     await update.message.reply_text(cmds)
 
-# ─── Manejo de mensajes ───────────────────────────────────────────
+# ─── Mensajes ─────────────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg  = update.message
-    if not msg:
+    if not msg or msg.from_user.is_bot:
         return
     chat, user = msg.chat, msg.from_user
-    if chat.type not in ("group","supergroup") or user.is_bot:
-        return
-
     cfg = await config_collection.find_one({"_id": chat.id})
     if not cfg:
         return
@@ -247,37 +244,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     xp  = rec["xp"]    if rec else 0
     lvl = rec["nivel"] if rec else 0
 
-    # XP aleatorio: 7–10 texto, 20–30 foto
     gan = random.randint(20,30) if msg.photo else random.randint(7,10)
-    xp += gan
-    new_lvl = calcular_nivel(xp)
-    if new_lvl > 100:
-        new_lvl = 100
+    xp_nivel = xp + gan
+    req = xp_para_subir(lvl)
 
-    await xp_collection.update_one(
-        {"_id": key},
-        {"$set": {"xp": xp, "nivel": new_lvl}},
-        upsert=True
-    )
-
-    # Si sube de nivel
-    if new_lvl > lvl:
+    if xp_nivel >= req and lvl < 100:
+        nuevo_nivel = lvl + 1
+        xp_nivel = 0
+        falta = xp_para_subir(nuevo_nivel)
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
-        # Mensaje de felicitación
         await context.bot.send_message(
             chat_id=chat.id,
             message_thread_id=thread_id,
-            text=f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{new_lvl}</b> 🚀",
+            text=(
+                f"🎉 <b>¡Felicidades!</b> {mention} alcanzó el nivel <b>{nuevo_nivel}</b> 🚀\n\n"
+                f"Ahora necesitas <b>{falta} XP</b> para el nivel {nuevo_nivel+1}."
+            ),
             parse_mode="HTML"
         )
-        # Mensaje de premio si existe
-        alt = await alerts_collection.find_one({"_id": f"{chat.id}_{new_lvl}"})
-        if alt:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                message_thread_id=thread_id,
-                text=alt["message"]
-            )
+    else:
+        nuevo_nivel = lvl
+
+    await xp_collection.update_one(
+        {"_id": key},
+        {"$set": {"xp": xp_nivel, "nivel": nuevo_nivel}},
+        upsert=True
+    )
 
 # ─── Main ─────────────────────────────────────────────────────────
 def main():
