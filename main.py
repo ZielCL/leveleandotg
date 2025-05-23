@@ -299,7 +299,7 @@ def main():
     app.add_handler(CommandHandler("levtopacumulado", levtopacumulado))
     app.add_handler(CallbackQueryHandler(top_callback, pattern=r"^top_"))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
-    app.add_handler(CallbackQueryHandler(levtop_callback, pattern=r"^levtop_\d+$"))
+    
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.run_polling()
 
