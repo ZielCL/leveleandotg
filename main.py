@@ -66,7 +66,7 @@ async def rollover_month(chat_id: int):
     top3 = await db_monthly.find({"_id": {"$regex": f"^{chat_id}_"}}) \
                            .sort("xp", -1).limit(3).to_list(3)
     for doc in top3:
-        uid = doc["_1"].split("_", 1)[1]
+        uid = doc["_id"].split("_", 1)[1]
         await stats_collection.update_one(
             {"_id": f"{chat_id}_{uid}"}, {"$inc": {"top3_count": 1}}, upsert=True
         )
