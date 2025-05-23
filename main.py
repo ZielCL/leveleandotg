@@ -53,7 +53,12 @@ alerts_collection = db.level_alerts
 
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
-    return round(0.18 * nivel**2 + 5 * nivel)
+    """
+    XP necesaria para pasar del nivel 'nivel' al siguiente.
+    Hemos añadido un offset de +95 para que el nivel 1 requiera 100 XP.
+    La fórmula queda: 0.18*n^2 + 5*n + 95
+    """
+    return round(0.18 * nivel**2 + 5 * nivel + 95)
 
 def make_key(chat_id: int, user_id: int) -> str:
     return f"{chat_id}_{user_id}"
@@ -144,7 +149,6 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
-    # Guardar y loggear
     logger.info(f"🔔 Guardando alerta nivel={nivel}: {mensaje!r}")
     await alerts_collection.update_one(
         {"_id": f"{chat.id}_{nivel}"},
@@ -215,7 +219,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     xp  = rec["xp"]    if rec else 0
     lvl = rec["nivel"] if rec else 0
 
-    gan = random.randint(20,30) if msg.photo else random.randint(7,10)
+    # Ganancia aleatoria
+    gan     = random.randint(20,30) if msg.photo else random.randint(7,10)
     xp_nivel = xp + gan
     req      = xp_para_subir(lvl)
 
