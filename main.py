@@ -292,7 +292,7 @@ def main():
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("levsettema",  levsettema))
     app.add_handler(CommandHandler("levalerta",   levalerta))
-    app.add_handler(CommandHandler("levalertalist", levalertallist))
+    app.add_handler(CommandHandler("levalertalist", levalertalist))
     app.add_handler(CommandHandler("levperfil",   levperfil))
     app.add_handler(CallbackQueryHandler(perfil_callback, pattern=r"^perfil_"))
     app.add_handler(CommandHandler("levtop",      levtop))
