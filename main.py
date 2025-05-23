@@ -56,6 +56,7 @@ alerts_collection = db.level_alerts
 
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
+    """XP necesaria para pasar del nivel 'nivel' al siguiente."""
     return round(0.18 * nivel**2 + 5 * nivel)
 
 def make_key(chat_id: int, user_id: int) -> str:
@@ -81,7 +82,7 @@ async def send_top_page(bot, chat_id: int, page: int):
         text += f"{idx}. {name} — Nivel {doc['nivel']}, {doc['xp']} XP\n"
 
     btns = []
-    if page > 1:   btns.append(InlineKeyboardButton("◀️", callback_data=f"levtop_{page-1}"))
+    if page > 1:     btns.append(InlineKeyboardButton("◀️", callback_data=f"levtop_{page-1}"))
     if page < pages: btns.append(InlineKeyboardButton("▶️", callback_data=f"levtop_{page+1}"))
     kb = InlineKeyboardMarkup([btns]) if btns else None
     return text, kb
@@ -97,7 +98,7 @@ async def on_startup(app):
         BotCommand("start",      "Cómo instalar y configurar el bot"),
         BotCommand("levsettema", "Configura hilo de alertas de nivel (admin)"),
         BotCommand("levalerta",  "Define premio por nivel (admin)"),
-        BotCommand("levperfil",  "Muestra tu XP, nivel y posición"),
+        BotCommand("levperfil",  "Muestra tu XP, nivel, posición y XP para siguiente"),
         BotCommand("levtop",     "Ranking XP con paginado"),
         BotCommand("levcomandos","Lista de comandos disponibles"),
     ])
@@ -113,7 +114,6 @@ async def on_startup(app):
                 text="🎉 Alertas de nivel activas."
             )
         except Forbidden:
-            # Se expulsó el bot: borramos la config para ese chat
             await config_collection.delete_one({"_id": chat_id})
             logger.warning(f"Configuración eliminada para chat {chat_id} (bot expulsado)")
         except Exception as e:
@@ -123,9 +123,10 @@ async def on_startup(app):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 ¡Hola! Soy LeveleandoTG.\n"
+        "Para habilitarme en tu grupo:\n"
         "1️⃣ Agrégame como admin.\n"
         "2️⃣ Usa /levsettema <thread_id> para definir el hilo de alertas.\n"
-        "   • En Desktop/Web, copia enlace de mensaje → el número final es el thread_id.\n"
+        "   • En Desktop/Web copia enlace de mensaje → el número final es el thread_id.\n"
         "3️⃣ Usa /levalerta <nivel> <mensaje> para definir premio al subir nivel.\n\n"
         "Escribe /levcomandos para ver todos los comandos."
     )
@@ -136,15 +137,14 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ("group","supergroup"): return
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ("administrator","creator"):
-        return await update.message.reply_text("❌ Solo administradores pueden usarlo.")
+        return await update.message.reply_text("❌ Solo administradores.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
             "❌ Uso correcto: `/levsettema <thread_id>`\n\n"
             "🔍 Para obtener el thread_id:\n"
             "1. En Desktop/Web abre el tema deseado.\n"
-            "2. Haz clic derecho en un mensaje → Copiar enlace.\n"
-            "3. El número final (p.ej. “90”) es el thread_id.\n"
-            "Ejemplo: `/levsettema 90`"
+            "2. Haz clic derecho sobre un mensaje → Copiar enlace.\n"
+            "3. El número final (p.ej. “90”) es el thread_id."
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
@@ -158,7 +158,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type not in ("group","supergroup"): return
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ("administrator","creator"):
-        return await update.message.reply_text("❌ Solo administradores pueden usarlo.")
+        return await update.message.reply_text("❌ Solo administradores.")
     if len(context.args) < 2 or not context.args[0].isdigit():
         return await update.message.reply_text("❌ Uso: `/levalerta <nivel> <mensaje>`")
     nivel   = int(context.args[0])
@@ -176,18 +176,22 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     xp  = doc["xp"]    if doc else 0
     lvl = doc["nivel"] if doc else 0
 
-    prefix = f"{chat.id}_"
+    # posición
+    prefix  = f"{chat.id}_"
     mayores = await xp_collection.count_documents({
         "_id": {"$regex": f"^{prefix}"}, "xp": {"$gt": xp}
     })
-    posicion = mayores + 1
-    total    = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+    pos, total = mayores + 1, await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+
+    # XP faltante
+    falta = xp_para_subir(lvl) - xp if lvl < 100 else 0
 
     await update.message.reply_text(
         f"{user.full_name}:\n"
         f"• XP: {xp}\n"
         f"• Nivel: {lvl}\n"
-        f"• Posición: {posicion}/{total}"
+        f"• Posición: {pos}/{total}\n"
+        f"• XP para siguiente nivel: {falta}"
     )
 
 # ─── /levtop ──────────────────────────────────────────────────────
@@ -201,12 +205,12 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── Callback paginado ────────────────────────────────────────────
 async def levtop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat = query.message.chat
-    page = int(query.data.split("_",1)[1])
+    q = update.callback_query
+    await q.answer()
+    chat = q.message.chat
+    page = int(q.data.split("_",1)[1])
     text, kb = await send_top_page(context.bot, chat.id, page)
-    await query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+    await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
 
 # ─── /levcomandos ─────────────────────────────────────────────────
 async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,7 +219,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start         — Cómo instalar y configurar el bot\n"
         "/levsettema    — Define hilo de alertas (admin)\n"
         "/levalerta     — Define premio por nivel (admin)\n"
-        "/levperfil     — Muestra tu XP, nivel y posición\n"
+        "/levperfil     — Muestra XP, nivel, posición y XP faltante\n"
         "/levtop        — Ranking XP con paginado\n"
         "/levcomandos   — Lista de comandos\n"
     )
@@ -224,12 +228,10 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Mensajes ─────────────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg  = update.message
-    if not msg or msg.from_user.is_bot:
-        return
+    if not msg or msg.from_user.is_bot: return
     chat, user = msg.chat, msg.from_user
     cfg = await config_collection.find_one({"_id": chat.id})
-    if not cfg:
-        return
+    if not cfg: return
     thread_id = cfg["thread_id"]
     key       = make_key(chat.id, user.id)
     rec       = await xp_collection.find_one({"_id": key})
@@ -283,5 +285,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
