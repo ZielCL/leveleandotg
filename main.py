@@ -120,7 +120,7 @@ async def on_startup(app):
     await app.bot.set_my_commands([
         BotCommand("start",           "💬 Muestra instrucciones de configuración"),
         BotCommand("levsettema",      "🧵 Define hilo de alertas (admins)"),
-        BotCommand("levalerta",       "🎁 Define mensaje de premio (admins)"),
+        BotCommand("levalerta",       "🎁 Define mensaje personalizado por nivel (admins)"),
         BotCommand("levalertalist",   "📋 Lista alertas configuradas (admins)"),
         BotCommand("levperfil",       "👤 Perfil interactivo mensual/acumulado"),
         BotCommand("levtop",          "📈 Top XP del mes"),
@@ -141,10 +141,11 @@ async def on_startup(app):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """📌 /start: muestra guía rápida."""
     await update.message.reply_text(
-        "👋 *LeveleandoTG*:\n"
+        "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
+        "Para habilitarme en tu grupo:\n"
         "Añádeme como admin y luego:\n"
-        "• /levsettema `<thread_id>`: define el hilo de alertas\n"
-        "• /levalerta `<nivel>` `<mensaje>`: configura premio\n"
+        "• /levsettema `<thread_id>`: define el hilo para alertas\n"
+        "• /levalerta `<nivel>` `<mensaje>`: Define mensaje personalizado por nivel\n"
         "• /levperfil: ve tu perfil mensual/acumulado\n"
         "• /levtop: top 10 del mes\n"
         "• /levtopacumulado: top 10 acumulado\n\n"
@@ -161,7 +162,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levsettema `<thread_id>`")
+        return await update.message.reply_text("❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id.")
     thread_id = int(context.args[0])
     await config_collection.update_one(
         {"_id": chat.id},
@@ -172,7 +173,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     parse_mode="Markdown")
 
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🎁 /levalerta [nivel] [mensaje]: define premio al subir de nivel."""
+    """🎁 /levalerta [nivel] [mensaje]: Define mensaje personalizado por nivel."""
     chat, user = update.effective_chat, update.effective_user
     m = await context.bot.get_chat_member(chat.id, user.id)
     if m.status not in ("administrator","creator"):
@@ -296,7 +297,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         "/start — guía rápida de configuración",
         "/levsettema — define hilo de alertas (admin)",
-        "/levalerta — configura premio por nivel (admin)",
+        "/levalerta — Define mensaje personalizado por nivel (admin)",
         "/levalertalist — muestra alertas creadas (admin)",
         "/levperfil — perfil mensual y botones",
         "/levtop — top 10 del mes",
