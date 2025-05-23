@@ -32,9 +32,9 @@ threading.Thread(target=run_keepalive_server, daemon=True).start()
 # ─── Configuración ───────────────────────────────────────────────
 nest_asyncio.apply()
 load_dotenv()
-BOT_TOKEN = os.getenv("7532025399:AAEo3jRQ2_Vh2KO9GRHpukK3EU2tr1T7pHg")
-MONGO_URI = os.getenv("mongodb+srv://ZielCL:zi159511el@cluster0.tyhpwti.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-BASE_URL  = os.getenv("https://leveleandotg.onrender.com")  # la URL pública de tu Repl/Render, p.ej. https://mi-repl.repl.co
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MONGO_URI = os.getenv("MONGO_URI")
+BASE_URL  = os.getenv("BASE_URL")  # la URL pública de tu Repl/Render, p.ej. https://mi-repl.repl.co
 
 if not BOT_TOKEN or not MONGO_URI or not BASE_URL:
     print("❌ Necesitas BOT_TOKEN, MONGO_URI y BASE_URL en .env")
