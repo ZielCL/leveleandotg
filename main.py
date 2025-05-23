@@ -17,7 +17,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from telegram.error import Forbidden
+from telegram.error import Forbidden, BadRequest  # <-- añadimos BadRequest
 
 # ─── Keep-Alive Server ────────────────────────────────────────────
 class KeepAliveHandler(BaseHTTPRequestHandler):
@@ -203,25 +203,62 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     btn = InlineKeyboardButton("➡️ Acumulado", callback_data="perfil_acum")
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[btn]]), parse_mode="HTML")
 
+# ─── CALLBACK para ambos estados de perfil ────────────────────────
 async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.callback_query.data
     chat, user = update.effective_chat, update.effective_user
-    key = make_key(chat.id, user.id)
-    rec2 = await xp_collection.find_one({"_id": key}) or {}
-    xp_a, lvl_a = rec2.get("xp", 0), rec2.get("nivel", 1)
-    pref = f"{chat.id}_"
-    higher2 = await xp_collection.count_documents({"_id": {"$regex": pref}, "xp": {"$gt": xp_a}})
-    pos_a = higher2+1; total_a = await xp_collection.count_documents({"_id": {"$regex": pref}})
-    stats = await stats_collection.find_one({"_id": key}) or {}
-    top3c = stats.get("top3_count", 0)
-    cfg = await config_collection.find_one({"_id": chat.id}) or {}
-    meses = cfg.get("meses_pasados", 0)
-    text = (
-        f"Nivel acumulado: {lvl_a}\n"
-        f"Posición acumulada: {pos_a}/{total_a}\n"
-        f"Veces en top 3: {top3c}/{meses}\n"
-    )
-    btn = InlineKeyboardButton("⬅️ Mes actual", callback_data="perfil_mes")
-    await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[btn]]), parse_mode="HTML")
+
+    if data == "perfil_acum":
+        # Vista acumulada
+        key = make_key(chat.id, user.id)
+        rec2 = await xp_collection.find_one({"_id": key}) or {}
+        xp_a, lvl_a = rec2.get("xp", 0), rec2.get("nivel", 1)
+        pref = f"{chat.id}_"
+        higher2 = await xp_collection.count_documents({"_id": {"$regex": pref}, "xp": {"$gt": xp_a}})
+        pos_a = higher2+1
+        total_a = await xp_collection.count_documents({"_id": {"$regex": pref}})
+        stats = await stats_collection.find_one({"_id": key}) or {}
+        top3c = stats.get("top3_count", 0)
+        cfg = await config_collection.find_one({"_id": chat.id}) or {}
+        meses = cfg.get("meses_pasados", 0)
+
+        text = (
+            f"{user.full_name}:\n"
+            f"• Nivel acumulado: {lvl_a}\n"
+            f"• Posición acumulada: {pos_a}/{total_a}\n"
+            f"• Veces en top 3: {top3c}/{meses}\n"
+        )
+        btn = InlineKeyboardButton("⬅️ Mes actual", callback_data="perfil_mes")
+
+    else:
+        # Vista mensual
+        await ensure_monthly_state(chat.id)
+        key = make_key(chat.id, user.id)
+        recm = await db_monthly.find_one({"_id": key}) or {}
+        xp_m, lvl_m = recm.get("xp", 0), recm.get("nivel", 1)
+        pref = f"{chat.id}_"
+        higher_m = await db_monthly.count_documents({"_id": {"$regex": pref}, "xp": {"$gt": xp_m}})
+        pos_m = higher_m+1
+        total_m = await db_monthly.count_documents({"_id": {"$regex": pref}})
+        falta = xp_para_subir(lvl_m) - xp_m
+
+        text = (
+            f"{user.full_name}:\n"
+            f"• Nivel: {lvl_m}\n"
+            f"• Posición: {pos_m}/{total_m}\n\n"
+            f"• XP: {xp_m}\n"
+            f"• XP para siguiente nivel: {falta}\n"
+        )
+        btn = InlineKeyboardButton("➡️ Acumulado", callback_data="perfil_acum")
+
+    try:
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[btn]]),
+            parse_mode="HTML"
+        )
+    except (Forbidden, BadRequest):
+        pass
 
 async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -231,7 +268,6 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def levtopacumulado(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    await ensure_monthly_state(chat.id)
     text, kb = await send_top_page(context.bot, chat.id, 1, xp_collection)
     await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -247,7 +283,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start\n"
         "/levsettema\n"
         "/levalerta\n"
-        "/levalertatalist\n"
+        "/levalertallist\n"
         "/levperfil\n"
         "/levtop\n"
         "/levtopacumulado\n"
@@ -256,37 +292,47 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or msg.from_user.is_bot: return
+    if not msg or msg.from_user.is_bot:
+        return
     chat, user = msg.chat, msg.from_user
     cfg = await config_collection.find_one({"_id": chat.id})
-    if not cfg: return
+    if not cfg:
+        return
     key = make_key(chat.id, user.id)
     rec = await xp_collection.find_one({"_id": key}) or {}
     xp  = rec.get("xp", 0)
     lvl = rec.get("nivel", 0)
+
     gan = random.randint(20,30) if msg.photo else random.randint(7,10)
     xp_nivel = xp + gan
     req      = xp_para_subir(lvl)
+
     if xp_nivel >= req and lvl < 100:
         nuevo_lvl = lvl + 1
         xp_nivel  = 0
         falta     = xp_para_subir(nuevo_lvl)
-        # actualizar mensual y total
-        await xp_collection.update_one({"_id": key},{"$set": {"xp": xp_nivel,"nivel": nuevo_lvl}}, upsert=True)
-        await db_monthly.update_one({"_id": key},{"$set": {"xp": xp_nivel,"nivel": nuevo_lvl}}, upsert=True)
+        await xp_collection.update_one({"_id": key}, {"$set": {"xp": xp_nivel, "nivel": nuevo_lvl}}, upsert=True)
+        await db_monthly.update_one({"_id": key}, {"$set": {"xp": xp_nivel, "nivel": nuevo_lvl}}, upsert=True)
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
-        await context.bot.send_message(chat_id=chat.id,message_thread_id=cfg["thread_id"],
+        await context.bot.send_message(
+            chat_id=chat.id,
+            message_thread_id=cfg["thread_id"],
             text=(f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{nuevo_lvl}</b> 🚀\n"
-                  f"Ahora necesitas <b>{falta} XP</b> para el siguiente."),parse_mode="HTML")
+                  f"Ahora necesitas <b>{falta} XP</b> para el siguiente."),
+            parse_mode="HTML"
+        )
         alt = await alerts_collection.find_one({"_id": f"{chat.id}_{nuevo_lvl}"})
         if alt and alt.get("message"):
-            await context.bot.send_message(chat_id=chat.id,message_thread_id=cfg["thread_id"],text=alt["message"] )
+            await context.bot.send_message(
+                chat_id=chat.id,
+                message_thread_id=cfg["thread_id"],
+                text=alt["message"]
+            )
     else:
-        await xp_collection.update_one({"_id": key},{"$set": {"xp": xp_nivel}}, upsert=True)
-        await db_monthly.update_one({"_id": key},{"$set": {"xp": xp_nivel}}, upsert=True)
+        await xp_collection.update_one({"_id": key}, {"$set": {"xp": xp_nivel}}, upsert=True)
+        await db_monthly.update_one({"_id": key}, {"$set": {"xp": xp_nivel}}, upsert=True)
 
 # ─── main ────────────────────────────────────────────────────────
-
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(CommandHandler("start",       start))
@@ -299,7 +345,6 @@ def main():
     app.add_handler(CommandHandler("levtopacumulado", levtopacumulado))
     app.add_handler(CallbackQueryHandler(top_callback, pattern=r"^top_"))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
-    
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.run_polling()
 
