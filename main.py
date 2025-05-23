@@ -21,9 +21,12 @@ from telegram.error import Forbidden
 # ─── Keep-Alive Server ────────────────────────────────────────────
 class KeepAliveHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
     def do_HEAD(self):
-        self.send_response(200); self.end_headers()
+        self.send_response(200)
+        self.end_headers()
 
 def run_keepalive_server():
     port = int(os.getenv("PORT", "3000"))
@@ -55,10 +58,10 @@ alerts_collection = db.level_alerts
 def xp_para_subir(nivel: int) -> int:
     """
     XP necesaria para pasar del nivel 'nivel' al siguiente.
-    Hemos añadido un offset de +95 para que el nivel 1 requiera 100 XP.
-    La fórmula queda: 0.18*n^2 + 5*n + 95
+    Fórmula: 100 + 7*(nivel - 1)
+    Nivel 1 → 100 XP, Nivel 2 → 107 XP, Nivel 3 → 114 XP, etc.
     """
-    return round(0.18 * nivel**2 + 5 * nivel + 95)
+    return 100 + 7 * (nivel - 1)
 
 def make_key(chat_id: int, user_id: int) -> str:
     return f"{chat_id}_{user_id}"
@@ -254,6 +257,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"xp": xp_nivel, "nivel": nuevo_lvl}},
         upsert=True
     )
+
 
 def main():
     app = ApplicationBuilder()\
