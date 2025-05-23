@@ -16,18 +16,16 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
+from telegram.error import Forbidden
 
 # ─── Keep-Alive Server ────────────────────────────────────────────
 class KeepAliveHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         print(f"🔔 Ping GET recibido de {self.client_address}")
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+        self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
     def do_HEAD(self):
         print(f"🔔 Ping HEAD recibido de {self.client_address}")
-        self.send_response(200)
-        self.end_headers()
+        self.send_response(200); self.end_headers()
 
 def run_keepalive_server():
     port = int(os.getenv("PORT", "3000"))
@@ -41,7 +39,7 @@ nest_asyncio.apply()
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI  = os.getenv("MONGO_URI")
 if not BOT_TOKEN or not MONGO_URI:
     print("❌ Faltan BOT_TOKEN o MONGO_URI en .env")
     exit(1)
@@ -54,11 +52,10 @@ client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 db = client.mi_base_de_datos
 xp_collection     = db.xp_usuarios
 config_collection = db.temas_configurados
-alerts_collection = db.level_alerts      # colección para mensajes de premio
+alerts_collection = db.level_alerts
 
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
-    """XP necesaria para pasar del nivel 'nivel' al siguiente."""
     return round(0.18 * nivel**2 + 5 * nivel)
 
 def make_key(chat_id: int, user_id: int) -> str:
@@ -66,30 +63,27 @@ def make_key(chat_id: int, user_id: int) -> str:
 
 async def send_top_page(bot, chat_id: int, page: int):
     prefix = f"{chat_id}_"
-    total = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
-    pages = max(1, math.ceil(total/10))
-    page = max(1, min(page, pages))
-    cursor = xp_collection.find({"_id": {"$regex": f"^{prefix}"}}) \
+    total  = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
+    pages  = max(1, math.ceil(total/10))
+    page   = max(1, min(page, pages))
+    cursor = xp_collection.find({"_id": {"$regex": f"^{prefix}"}})\
                           .sort("xp", -1).skip((page-1)*10).limit(10)
-    docs = await cursor.to_list(10)
+    docs   = await cursor.to_list(10)
 
     text = f"🏆 XP Ranking (página {page}/{pages}):\n"
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         _, uid_str = doc["_id"].split("_",1)
         uid = int(uid_str)
         try:
-            member = await bot.get_chat_member(chat_id, uid)
-            name = member.user.full_name
+            name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
         text += f"{idx}. {name} — Nivel {doc['nivel']}, {doc['xp']} XP\n"
 
-    buttons = []
-    if page > 1:
-        buttons.append(InlineKeyboardButton("◀️", callback_data=f"levtop_{page-1}"))
-    if page < pages:
-        buttons.append(InlineKeyboardButton("▶️", callback_data=f"levtop_{page+1}"))
-    kb = InlineKeyboardMarkup([buttons]) if buttons else None
+    btns = []
+    if page > 1:   btns.append(InlineKeyboardButton("◀️", callback_data=f"levtop_{page-1}"))
+    if page < pages: btns.append(InlineKeyboardButton("▶️", callback_data=f"levtop_{page+1}"))
+    kb = InlineKeyboardMarkup([btns]) if btns else None
     return text, kb
 
 # ─── Startup ──────────────────────────────────────────────────────
@@ -111,67 +105,66 @@ async def on_startup(app):
 
     async for cfg in config_collection.find({}):
         chat_id, thread_id = cfg["_id"], cfg["thread_id"]
-        await app.bot.send_message(chat_id, "🤖 LeveleandoTG activo.")
-        await app.bot.send_message(
-            chat_id,
-            message_thread_id=thread_id,
-            text="🎉 Alertas de nivel activas."
-        )
+        try:
+            await app.bot.send_message(chat_id, "🤖 LeveleandoTG activo.")
+            await app.bot.send_message(
+                chat_id,
+                message_thread_id=thread_id,
+                text="🎉 Alertas de nivel activas."
+            )
+        except Forbidden:
+            # Se expulsó el bot: borramos la config para ese chat
+            await config_collection.delete_one({"_id": chat_id})
+            logger.warning(f"Configuración eliminada para chat {chat_id} (bot expulsado)")
+        except Exception as e:
+            logger.error(f"Error notificando inicio en chat {chat_id}: {e}")
 
 # ─── /start ───────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 ¡Hola! Soy LeveleandoTG.\n"
         "1️⃣ Agrégame como admin.\n"
-        "2️⃣ Usa /levsettema <thread_id> para elegir el hilo de alertas.\n"
-        "   • En Desktop/Web copia enlace de un mensaje → el número final es el thread_id.\n"
-        "3️⃣ Usa /levalerta <nivel> <mensaje> para definir premio al subir.\n\n"
+        "2️⃣ Usa /levsettema <thread_id> para definir el hilo de alertas.\n"
+        "   • En Desktop/Web, copia enlace de mensaje → el número final es el thread_id.\n"
+        "3️⃣ Usa /levalerta <nivel> <mensaje> para definir premio al subir nivel.\n\n"
         "Escribe /levcomandos para ver todos los comandos."
     )
 
 # ─── /levsettema ──────────────────────────────────────────────────
 async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
-    if chat.type not in ("group","supergroup"):
-        return
+    if chat.type not in ("group","supergroup"): return
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo administradores pueden usarlo.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Uso correcto: /levsettema <thread_id>\n\n"
-            "🔍 Cómo obtener el thread_id:\n"
-            "1. En Telegram Desktop/Web, abre el grupo y selecciona el tema deseado.\n"
+            "❌ Uso correcto: `/levsettema <thread_id>`\n\n"
+            "🔍 Para obtener el thread_id:\n"
+            "1. En Desktop/Web abre el tema deseado.\n"
             "2. Haz clic derecho en un mensaje → Copiar enlace.\n"
-            "3. El enlace será algo como:\n"
-            "   https://t.me/c/1234567890/90\n"
-            "   ⇒ El número final (aquí “90”) es el thread_id.\n"
-            "Ejemplo: /levsettema 90"
+            "3. El número final (p.ej. “90”) es el thread_id.\n"
+            "Ejemplo: `/levsettema 90`"
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
-        {"_id": chat.id},
-        {"$set": {"thread_id": thread_id}},
-        upsert=True
+        {"_id": chat.id}, {"$set": {"thread_id": thread_id}}, upsert=True
     )
     await update.message.reply_text(f"✅ Hilo configurado: {thread_id}")
 
 # ─── /levalerta ───────────────────────────────────────────────────
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
-    if chat.type not in ("group","supergroup"):
-        return
+    if chat.type not in ("group","supergroup"): return
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo administradores pueden usarlo.")
     if len(context.args) < 2 or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
-    nivel = int(context.args[0])
+        return await update.message.reply_text("❌ Uso: `/levalerta <nivel> <mensaje>`")
+    nivel   = int(context.args[0])
     mensaje = " ".join(context.args[1:])
     await alerts_collection.update_one(
-        {"_id": f"{chat.id}_{nivel}"},
-        {"$set": {"message": mensaje}},
-        upsert=True
+        {"_id": f"{chat.id}_{nivel}"}, {"$set": {"message": mensaje}}, upsert=True
     )
     await update.message.reply_text(f"✅ Premio guardado para nivel {nivel}.")
 
@@ -185,8 +178,7 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prefix = f"{chat.id}_"
     mayores = await xp_collection.count_documents({
-        "_id": {"$regex": f"^{prefix}"},
-        "xp":  {"$gt": xp}
+        "_id": {"$regex": f"^{prefix}"}, "xp": {"$gt": xp}
     })
     posicion = mayores + 1
     total    = await xp_collection.count_documents({"_id": {"$regex": f"^{prefix}"}})
@@ -201,7 +193,7 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /levtop ──────────────────────────────────────────────────────
 async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    cfg = await config_collection.find_one({"_id": chat.id})
+    cfg  = await config_collection.find_one({"_id": chat.id})
     if not cfg:
         return await update.message.reply_text("❌ No hay hilo configurado (/levsettema).")
     text, kb = await send_top_page(context.bot, chat.id, page=1)
@@ -239,20 +231,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not cfg:
         return
     thread_id = cfg["thread_id"]
-    key = make_key(chat.id, user.id)
-    rec = await xp_collection.find_one({"_id": key})
-    xp  = rec["xp"]    if rec else 0
-    lvl = rec["nivel"] if rec else 0
+    key       = make_key(chat.id, user.id)
+    rec       = await xp_collection.find_one({"_id": key})
+    xp        = rec["xp"]    if rec else 0
+    lvl       = rec["nivel"] if rec else 0
 
     gan = random.randint(20,30) if msg.photo else random.randint(7,10)
     xp_nivel = xp + gan
-    req = xp_para_subir(lvl)
+    req      = xp_para_subir(lvl)
 
     if xp_nivel >= req and lvl < 100:
         nuevo_nivel = lvl + 1
-        xp_nivel = 0
-        falta = xp_para_subir(nuevo_nivel)
-        mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+        xp_nivel    = 0
+        falta       = xp_para_subir(nuevo_nivel)
+        mention     = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
         await context.bot.send_message(
             chat_id=chat.id,
             message_thread_id=thread_id,
@@ -291,4 +283,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
