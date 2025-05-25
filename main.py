@@ -54,17 +54,14 @@ stats_collection  = db.user_stats     # conteo top3 y meses pasados
 
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
-    """Calcula XP necesaria para subir del nivel n al n+1."""
     return 100 + 7 * (nivel - 1)
 
 def make_key(chat_id: int, user_id: int) -> str:
-    """Genera clave única chat_usuario."""
     return f"{chat_id}_{user_id}"
 
 async def rollover_month(chat_id: int):
-    """Cierra el mes: guarda top3 en stats y limpia XP mensual."""
     top3 = await db_monthly.find({"_id": {"$regex": f"^{chat_id}_"}}) \
-                           .sort([("nivel", -1), ("xp", -1)]).limit(3).to_list(3)
+        .sort([("nivel", -1), ("xp", -1)]).limit(3).to_list(3)
     for doc in top3:
         uid = doc["_id"].split("_", 1)[1]
         await stats_collection.update_one(
@@ -80,34 +77,33 @@ async def rollover_month(chat_id: int):
     await db_monthly.delete_many({"_id": {"$regex": f"^{chat_id}_"}})
 
 async def ensure_monthly_state(chat_id: int):
-    """Verifica si cambió el mes y, de ser así, aplica rollover."""
     now = datetime.utcnow()
     cfg = await config_collection.find_one({"_id": chat_id})
     if not cfg or cfg.get("last_month") != now.month:
         await rollover_month(chat_id)
 
 async def send_top_page(bot, chat_id: int, page: int, collec):
-    """Genera texto y botones para paginar ranking de una colección."""
     prefix = f"{chat_id}_"
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     pages = max(1, math.ceil(total / 10))
     page = max(1, min(page, pages))
-    # Ordenar por nivel DESC, xp DESC
     docs = await collec.find({"_id": {"$regex": f"^{prefix}"}}) \
-                .sort([("nivel", -1), ("xp", -1)]) \
-                .skip((page-1)*10).limit(10).to_list(10)
+        .sort([("nivel", -1), ("xp", -1)]) \
+        .skip((page-1)*10).limit(10).to_list(10)
 
-    text = f"🏆 *XP Ranking* (página {page}/{pages}):*\n"
-    text += "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
-    text += "┃ #   Usuario         Nivel   XP       ┃\n"
-    text += "┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n"
+    # Encabezado HTML más limpio y alineado
+    text = (
+        "<b>🏆 XP Ranking (página {}/{}):</b>\n"
+        "<pre>#  Usuario           Niv   XP\n".format(page, pages)
+    )
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
-        # Medalla solo para los 3 primeros
+
+        # Medallas
         if idx == 1:
             pos = "🥇"
         elif idx == 2:
@@ -116,12 +112,12 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
             pos = "🥉"
         else:
             pos = f"{idx:>2}"
-        # Nombre máximo 14 caracteres (puedes ajustar), rellena espacios a la derecha
-        name_fmt = (name[:12] + "…") if len(name) > 13 else name.ljust(13)
-        nivel_fmt = str(doc.get('nivel', 0)).center(5)
-        xp_fmt = str(doc.get('xp', 0)).rjust(6)
-        text += f"┃ {pos:<2} {name_fmt} {nivel_fmt} {xp_fmt}  ┃\n"
-    text += "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+        # Formato del nombre
+        name_fmt = (name[:14] + "…") if len(name) > 15 else name.ljust(15)
+        nivel_fmt = str(doc.get('nivel', 0)).rjust(3)
+        xp_fmt = str(doc.get('xp', 0)).rjust(5)
+        text += f"{pos} {name_fmt} {nivel_fmt} {xp_fmt}\n"
+    text += "</pre>"
 
     btns = []
     if page > 1:
@@ -131,7 +127,6 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
     return text, InlineKeyboardMarkup([btns]) if btns else None
 
 async def get_rank_and_total(collec, chat_id, nivel, xp):
-    """Obtiene la posición del usuario dado su nivel y xp."""
     prefix = f"{chat_id}_"
     higher = await collec.count_documents({
         "_id": {"$regex": f"^{prefix}"},
@@ -158,13 +153,14 @@ async def on_startup(app):
         BotCommand("levtopacumulado", "📊 Top XP acumulado"),
         BotCommand("levcomandos",     "📜 Lista de todos los comandos"),
     ])
-    # Avisar operatividad solo en hilos si corresponde
+    # Avisar operatividad SOLO si el grupo es foro/temas
     async for cfg in config_collection.find({}):
         chat_id = cfg["_id"]
         thread_id = cfg.get("thread_id")
         try:
             await app.bot.send_message(chat_id, "🤖 LeveleandoTG activo en el grupo.")
             chat = await app.bot.get_chat(chat_id)
+            # Solo si es foro y tiene hilo configurado
             if thread_id and getattr(chat, "is_forum", False):
                 await app.bot.send_message(
                     chat_id,
@@ -177,16 +173,16 @@ async def on_startup(app):
 # ─── Comandos ─────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
+        "👋 <b>¡Hola! Soy tu bot LeveleandoTG</b>:\n"
         "Para habilitarme en tu grupo:\n"
         "Añádeme como admin y luego:\n"
-        "• /levsettema `<thread_id>`: define el hilo para alertas\n"
-        "• /levalerta `<nivel>` `<mensaje>`: Define mensaje personalizado por nivel\n"
+        "• /levsettema <code>&lt;thread_id&gt;</code>: define el hilo para alertas\n"
+        "• /levalerta <code>&lt;nivel&gt;</code> <code>&lt;mensaje&gt;</code>: Define mensaje personalizado por nivel\n"
         "• /levperfil: ve tu perfil mensual/acumulado\n"
         "• /levtop: top 10 del mes\n"
         "• /levtopacumulado: top 10 acumulado\n\n"
         "Escribe /levcomandos para ver todos los comandos.",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,7 +194,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
+            "❌ Para usar: /levsettema <thread_id> • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
@@ -206,7 +202,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"thread_id": thread_id}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Hilo de alertas configurado: `{thread_id}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Hilo de alertas configurado: <code>{thread_id}</code>", parse_mode="HTML")
 
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
@@ -214,7 +210,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator", "creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if len(context.args) < 2 or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta `<nivel>` `<mensaje>`")
+        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
     await alerts_collection.update_one(
@@ -222,7 +218,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"message": mensaje}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Premio guardado para nivel *{nivel}*", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Premio guardado para nivel <b>{nivel}</b>", parse_mode="HTML")
 
 async def levalertalist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -232,27 +228,27 @@ async def levalertalist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     docs = await alerts_collection.find({"_id": {"$regex": f"^{chat.id}_"}}).to_list(None)
     if not docs:
         return await update.message.reply_text("🚫 No hay alertas configuradas.")
-    text = "📋 *Alertas configuradas:*\n"
+    text = "<b>📋 Alertas configuradas:</b>\n"
     for doc in docs:
         _, lvl = doc["_id"].split("_", 1)
-        text += f"• Nivel {lvl}: _{doc['message']}_\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
+        text += f"• Nivel {lvl}: <i>{doc['message']}</i>\n"
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
     await ensure_monthly_state(chat.id)
     key = make_key(chat.id, user.id)
     rec = await db_monthly.find_one({"_id": key}) or {}
-    xp_m, lvl_m = rec.get("xp", 0), rec.get("nivel", 1)
+    xp_m, lvl_m = rec.get("xp",0), rec.get("nivel",1)
     pos_m, total_m = await get_rank_and_total(db_monthly, chat.id, lvl_m, xp_m)
     falta = xp_para_subir(lvl_m) - xp_m
     text = (
-        f"*{user.full_name}*\n"
-        f"• Nivel: *{lvl_m}*  Posición: *{pos_m}/{total_m}*\n\n"
-        f"• XP: *{xp_m}*  XP para siguiente nivel: *{falta}*"
+        f"<b>{user.full_name}</b>\n"
+        f"• Nivel: <b>{lvl_m}</b>  Posición: <b>{pos_m}/{total_m}</b>\n\n"
+        f"• XP: <b>{xp_m}</b>  XP para siguiente nivel: <b>{falta}</b>"
     )
     btn = InlineKeyboardButton("➡️ Acumulado", callback_data="perfil_acum")
-    await update.message.reply_text(text, parse_mode="Markdown",
+    await update.message.reply_text(text, parse_mode="HTML",
                                    reply_markup=InlineKeyboardMarkup([[btn]]))
 
 # ─── CALLBACK para perfil mensual/acumulado ──────────────────────
@@ -263,35 +259,35 @@ async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "perfil_acum":
         key = make_key(chat.id, user.id)
         rec = await xp_collection.find_one({"_id": key}) or {}
-        xp_a, lvl_a = rec.get("xp", 0), rec.get("nivel", 1)
+        xp_a, lvl_a = rec.get("xp",0), rec.get("nivel",1)
         pos_a, total_a = await get_rank_and_total(xp_collection, chat.id, lvl_a, xp_a)
         stats = await stats_collection.find_one({"_id": key}) or {}
-        top3c = stats.get("top3_count", 0)
+        top3c = stats.get("top3_count",0)
         cfg = await config_collection.find_one({"_id": chat.id}) or {}
-        meses = cfg.get("meses_pasados", 0)
+        meses = cfg.get("meses_pasados",0)
         text = (
-            f"*{user.full_name}* _(acumulado)_\n"
-            f"• Nivel total: *{lvl_a}*  Posición: *{pos_a}/{total_a}*\n"
-            f"• Veces en top 3: *{top3c}/{meses}*"
+            f"<b>{user.full_name}</b> <i>(acumulado)</i>\n"
+            f"• Nivel total: <b>{lvl_a}</b>  Posición: <b>{pos_a}/{total_a}</b>\n"
+            f"• Veces en top 3: <b>{top3c}/{meses}</b>"
         )
         btn = InlineKeyboardButton("⬅️ Mensual", callback_data="perfil_mes")
     else:
         await ensure_monthly_state(chat.id)
         key = make_key(chat.id, user.id)
         rec = await db_monthly.find_one({"_id": key}) or {}
-        xp_m, lvl_m = rec.get("xp", 0), rec.get("nivel", 1)
+        xp_m, lvl_m = rec.get("xp",0), rec.get("nivel",1)
         pos_m, total_m = await get_rank_and_total(db_monthly, chat.id, lvl_m, xp_m)
         falta = xp_para_subir(lvl_m) - xp_m
         text = (
-            f"*{user.full_name}* _(mensual)_\n"
-            f"• Nivel: *{lvl_m}*  Posición: *{pos_m}/{total_m}*\n"
-            f"• XP: *{xp_m}*  XP siguiente: *{falta}*"
+            f"<b>{user.full_name}</b> <i>(mensual)</i>\n"
+            f"• Nivel: <b>{lvl_m}</b>  Posición: <b>{pos_m}/{total_m}</b>\n"
+            f"• XP: <b>{xp_m}</b>  XP siguiente: <b>{falta}</b>"
         )
         btn = InlineKeyboardButton("➡️ Acumulado", callback_data="perfil_acum")
 
     try:
         await update.callback_query.edit_message_text(
-            text, parse_mode="Markdown",
+            text, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[btn]])
         )
     except (Forbidden, BadRequest):
@@ -301,18 +297,18 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await ensure_monthly_state(chat.id)
     text, kb = await send_top_page(context.bot, chat.id, 1, db_monthly)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def levtopacumulado(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     text, kb = await send_top_page(context.bot, chat.id, 1, xp_collection)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, page, col = update.callback_query.data.split("_")
     collec = xp_collection if col == "xp_usuarios" else db_monthly
     text, kb = await send_top_page(context.bot, update.effective_chat.id, int(page), collec)
-    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
 
 async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
@@ -325,7 +321,7 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/levtopacumulado — top 10 total",
         "/levcomandos — lista de comandos"
     ]
-    await update.message.reply_text("📜 *Comandos disponibles:*\n" + "\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("📜 <b>Comandos disponibles:</b>\n" + "\n".join(lines), parse_mode="HTML")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
