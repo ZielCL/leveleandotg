@@ -19,7 +19,7 @@ from telegram.ext import (
 )
 from telegram.error import Forbidden, BadRequest
 
-# ─── Keep-Alive Server ────────────────────────────────────────────
+# ─── Keep-Alive Server ───────────────────────────────
 class KeepAliveHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
@@ -31,7 +31,7 @@ threading.Thread(
     daemon=True
 ).start()
 
-# ─── Setup ────────────────────────────────────────────────────────
+# ─── Setup ────────────────────────────────────────────
 nest_asyncio.apply()
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -43,7 +43,7 @@ if not BOT_TOKEN or not MONGO_URI:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── MongoDB ──────────────────────────────────────────────────────
+# ─── MongoDB ──────────────────────────────────────────
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 db = client.mi_base_de_datos
 xp_collection     = db.xp_usuarios    # XP total acumulado
@@ -52,7 +52,7 @@ config_collection = db.temas_configurados
 alerts_collection = db.level_alerts
 stats_collection  = db.user_stats     # conteo top3 y meses pasados
 
-# ─── Helpers ──────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
     return 100 + 7 * (nivel - 1)
 
@@ -90,15 +90,15 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
     docs = await collec.find({"_id": {"$regex": f"^{prefix}"}}) \
                 .sort([("nivel", -1), ("xp", -1)]) \
                 .skip((page-1)*10).limit(10).to_list(10)
-
-    text = f"🏆 *XP Ranking* (página {page}/{pages}):\n"
+    # Armado de ranking
+    text = f"🏆 XP Ranking (página {page}/{pages}):\n"
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
-        # Medalla solo para los 3 primeros
+        # Medalla a los 3 primeros
         if idx == 1:
             pos = "🥇"
         elif idx == 2:
@@ -106,13 +106,12 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         elif idx == 3:
             pos = "🥉"
         else:
-            pos = f"{idx:>2}"
-        # Nombre máximo 20 caracteres (ajusta si quieres)
-        name_fmt = (name[:18] + "…") if len(name) > 19 else name.ljust(20)
-        nivel_fmt = doc.get('nivel', 0)
-        xp_fmt = doc.get('xp', 0)
-        text += f"{pos} {name_fmt} Nv: {nivel_fmt:<3} XP: {xp_fmt}\n"
-
+            pos = f"{idx}"
+        name_fmt = (name[:16] + "…") if len(name) > 17 else name
+        # Nueva presentación alineada a la derecha
+        nivel_fmt = f"Nv: {doc.get('nivel', 0)}"
+        xp_fmt = f"XP: {doc.get('xp', 0)}"
+        text += f"{pos}. {name_fmt}   {nivel_fmt}   {xp_fmt}\n"
     btns = []
     if page > 1:
         btns.append(InlineKeyboardButton("◀️", callback_data=f"top_{page-1}_{collec.name}"))
@@ -132,7 +131,7 @@ async def get_rank_and_total(collec, chat_id, nivel, xp):
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     return higher+1, total
 
-# ─── Startup ──────────────────────────────────────────────────────
+# ─── Startup ──────────────────────────────────────────
 async def on_startup(app):
     logger.info("✅ Bot arrancando")
     await client.admin.command("ping")
@@ -147,6 +146,7 @@ async def on_startup(app):
         BotCommand("levtopacumulado", "📊 Top XP acumulado"),
         BotCommand("levcomandos",     "📜 Lista de todos los comandos"),
     ])
+    # Avisar operatividad solo en hilos si corresponde
     async for cfg in config_collection.find({}):
         chat_id = cfg["_id"]
         thread_id = cfg.get("thread_id")
@@ -162,7 +162,7 @@ async def on_startup(app):
         except Forbidden:
             await config_collection.delete_one({"_id": chat_id})
 
-# ─── Comandos ─────────────────────────────────────────────────────
+# ─── Comandos ─────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
@@ -243,6 +243,7 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup([[btn]]))
 
+# ─── CALLBACK para perfil mensual/acumulado ──────────
 async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
     chat, user = update.effective_chat, update.effective_user
@@ -299,7 +300,8 @@ async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, page, col = update.callback_query.data.split("_")
     collec = xp_collection if col == "xp_usuarios" else db_monthly
     text, kb = await send_top_page(context.bot, update.effective_chat.id, int(page), collec)
-    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    # IMPORTANTE: Aquí parse_mode=None para evitar errores en Telegram por emojis/nombres
+    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode=None)
 
 async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
