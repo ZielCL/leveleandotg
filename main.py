@@ -64,7 +64,7 @@ def make_key(chat_id: int, user_id: int) -> str:
 async def rollover_month(chat_id: int):
     """Cierra el mes: guarda top3 en stats y limpia XP mensual."""
     top3 = await db_monthly.find({"_id": {"$regex": f"^{chat_id}_"}}) \
-                           .sort("xp", -1).limit(3).to_list(3)
+                           .sort([("nivel", -1), ("xp", -1)]).limit(3).to_list(3)
     for doc in top3:
         uid = doc["_id"].split("_", 1)[1]
         await stats_collection.update_one(
@@ -93,7 +93,7 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
     pages  = max(1, math.ceil(total/10))
     page   = max(1, min(page, pages))
     docs   = await collec.find({"_id": {"$regex": f"^{prefix}"}}) \
-                        .sort("xp", -1).skip((page-1)*10).limit(10).to_list(10)
+                        .sort([("nivel", -1), ("xp", -1)]).skip((page-1)*10).limit(10).to_list(10)
 
     text = f"🏆 XP Ranking (página {page}/{pages}):\n"
     for i, doc in enumerate(docs, start=(page-1)*10+1):
@@ -162,7 +162,12 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator","creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id.")
+        return await update.message.reply_text(
+            "❌ Para usar: /levsettema `<thread_id>`\n"
+            "• En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta.\n"
+            "• El número después del segundo / es el thread_id.\n"
+            "Ejemplo: t.me/c/123456/789 -> thread_id es 789."
+        )
     thread_id = int(context.args[0])
     await config_collection.update_one(
         {"_id": chat.id},
@@ -213,7 +218,14 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rec = await db_monthly.find_one({"_id": key}) or {}
     xp_m, lvl_m = rec.get("xp",0), rec.get("nivel",1)
     pref = f"{chat.id}_"
-    higher = await db_monthly.count_documents({"_id":{"$regex":pref},"xp":{"$gt":xp_m}})
+    # Posición: primero por nivel, luego XP
+    higher = await db_monthly.count_documents({
+        "_id": {"$regex": pref},
+        "$or": [
+            {"nivel": {"$gt": lvl_m}},
+            {"nivel": lvl_m, "xp": {"$gt": xp_m}}
+        ]
+    })
     pos_m, total_m = higher+1, await db_monthly.count_documents({"_id":{"$regex":pref}})
     falta = xp_para_subir(lvl_m) - xp_m
     text = (
@@ -235,7 +247,13 @@ async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rec = await xp_collection.find_one({"_id": key}) or {}
         xp_a, lvl_a = rec.get("xp",0), rec.get("nivel",1)
         pref = f"{chat.id}_"
-        higher = await xp_collection.count_documents({"_id":{"$regex":pref},"xp":{"$gt":xp_a}})
+        higher = await xp_collection.count_documents({
+            "_id": {"$regex": pref},
+            "$or": [
+                {"nivel": {"$gt": lvl_a}},
+                {"nivel": lvl_a, "xp": {"$gt": xp_a}}
+            ]
+        })
         pos_a, total_a = higher+1, await xp_collection.count_documents({"_id":{"$regex":pref}})
         stats = await stats_collection.find_one({"_id": key}) or {}
         top3c = stats.get("top3_count",0)
@@ -254,7 +272,13 @@ async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rec = await db_monthly.find_one({"_id": key}) or {}
         xp_m, lvl_m = rec.get("xp",0), rec.get("nivel",1)
         pref = f"{chat.id}_"
-        higher = await db_monthly.count_documents({"_id":{"$regex":pref},"xp":{"$gt":xp_m}})
+        higher = await db_monthly.count_documents({
+            "_id": {"$regex": pref},
+            "$or": [
+                {"nivel": {"$gt": lvl_m}},
+                {"nivel": lvl_m, "xp": {"$gt": xp_m}}
+            ]
+        })
         pos_m, total_m = higher+1, await db_monthly.count_documents({"_id":{"$regex":pref}})
         falta = xp_para_subir(lvl_m) - xp_m
         text = (
@@ -342,19 +366,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
         )
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
-        await context.bot.send_message(
-            chat_id=chat.id,
-            message_thread_id=cfg["thread_id"],
-            text=(f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl}</b>!\n"
-                  f"XP necesaria para siguiente nivel: <b>{falta}</b>"),
-            parse_mode="HTML"
-        )
-        alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
-        if alt and alt.get("message"):
+        if "thread_id" in cfg:
             await context.bot.send_message(
                 chat_id=chat.id,
                 message_thread_id=cfg["thread_id"],
-                text=alt["message"]
+                text=(f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl}</b>!\n"
+                      f"XP necesaria para siguiente nivel: <b>{falta}</b>"),
+                parse_mode="HTML"
+            )
+            alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
+            if alt and alt.get("message"):
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    message_thread_id=cfg["thread_id"],
+                    text=alt["message"]
+                )
+        else:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=(
+                    "🔔 *Para habilitar las alertas de subida de nivel necesitas configurar un tema/hilo.*\n"
+                    "Para obtener el thread_id, copia el enlace de cualquier mensaje en el tema y toma el número después del segundo '/' (por ejemplo, en t.me/c/123456/789 *el thread_id es 789*).\n"
+                    "Luego ejecuta: `/levsettema <thread_id>`"
+                ),
+                parse_mode="Markdown"
             )
     else:
         await xp_collection.update_one(
