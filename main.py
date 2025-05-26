@@ -122,7 +122,6 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
         xp_fmt = str(doc.get('xp', 0)).rjust(4)
         next_xp = xp_para_subir(doc.get('nivel', 0))
-        # muestra también el xp necesario para subir de nivel
         lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
     lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 
@@ -147,6 +146,32 @@ async def get_rank_and_total(collec, chat_id, nivel, xp):
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     return higher+1, total
 
+# ─── Comando /restarlev ──────────────────────────────────────────
+async def restarlev(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    admin = update.effective_user
+
+    m = await context.bot.get_chat_member(chat.id, admin.id)
+    if m.status not in ("administrator", "creator"):
+        return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
+
+    if not context.message.reply_to_message or not context.args or not context.args[0].isdigit():
+        return await update.message.reply_text("❌ Debes responder a un mensaje de la persona y escribir la cantidad de niveles a restar. Ejemplo: /restarlev 2")
+
+    objetivo = context.message.reply_to_message.from_user
+    cantidad = int(context.args[0])
+    if cantidad < 1:
+        return await update.message.reply_text("❌ El nivel a restar debe ser mayor a 0.")
+
+    key = make_key(chat.id, objetivo.id)
+    nivel_nuevo = 0
+    for collec in [xp_collection, db_monthly]:
+        doc = await collec.find_one({"_id": key})
+        nivel_actual = doc.get("nivel", 0) if doc else 0
+        nivel_nuevo = max(nivel_actual - cantidad, 0)
+        await collec.update_one({"_id": key}, {"$set": {"nivel": nivel_nuevo, "xp": 0}}, upsert=True)
+    await update.message.reply_text(f"✅ Nivel de {objetivo.mention_html()} restado en {cantidad}. Ahora es nivel {nivel_nuevo}.", parse_mode="HTML")
+
 # ─── Startup ──────────────────────────────────────────────────────
 async def on_startup(app):
     logger.info("✅ Bot arrancando")
@@ -162,7 +187,6 @@ async def on_startup(app):
         BotCommand("levtopacumulado", "📊 Top XP acumulado"),
         BotCommand("levcomandos",     "📜 Lista de todos los comandos"),
     ])
-    # Avisar operatividad solo en hilos si corresponde
     async for cfg in config_collection.find({}):
         chat_id = cfg["_id"]
         thread_id = cfg.get("thread_id")
@@ -259,7 +283,6 @@ async def levperfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup([[btn]]))
 
-# ─── CALLBACK para perfil mensual/acumulado ──────────────────────
 async def perfil_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
     chat, user = update.effective_chat, update.effective_user
@@ -418,6 +441,7 @@ def main():
     app.add_handler(CommandHandler("levtopacumulado", levtopacumulado))
     app.add_handler(CallbackQueryHandler(top_callback, pattern=r"^top_"))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
+    app.add_handler(CommandHandler("restarlev", restarlev)) # <- AGREGADO
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.run_polling()
 
