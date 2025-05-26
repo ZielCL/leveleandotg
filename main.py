@@ -87,24 +87,29 @@ async def ensure_monthly_state(chat_id: int):
         await rollover_month(chat_id)
 
 async def send_top_page(bot, chat_id: int, page: int, collec):
-    """Genera texto y botones para paginar ranking de una colección."""
+    """
+    Genera texto y botones para paginar ranking de una colección, 
+    usando bloque de código para mayor ancho.
+    """
     prefix = f"{chat_id}_"
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     pages = max(1, math.ceil(total / 10))
     page = max(1, min(page, pages))
-    # Ordenar por nivel DESC, xp DESC
     docs = await collec.find({"_id": {"$regex": f"^{prefix}"}}) \
-                .sort([("nivel", -1), ("xp", -1)]) \
-                .skip((page-1)*10).limit(10).to_list(10)
+        .sort([("nivel", -1), ("xp", -1)]) \
+        .skip((page-1)*10).limit(10).to_list(10)
 
-    text = f"🏆 *XP Ranking* (página {page}/{pages}):*\n"
+    lines = []
+    lines.append(f"🏆 XP Ranking (página {page}/{pages}):")
+    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+    lines.append("┃ #  Usuario                        Nv:   XP  / Siguiente┃")
+    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
-        # Medalla solo para los 3 primeros
         if idx == 1:
             pos = "🥇"
         elif idx == 2:
@@ -112,11 +117,16 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         elif idx == 3:
             pos = "🥉"
         else:
-            pos = f"{idx}."
-        # Alineación: nombre hasta 18 caracteres (ajustable)
-        name_fmt = (name[:15] + "…") if len(name) > 16 else name
-        text += f"{pos:<3} {name_fmt:<18}  Nv: {doc.get('nivel', 0):<2} XP: {doc.get('xp', 0)}\n"
+            pos = f"{idx:>2}."
+        name_fmt = (name[:26] + "…") if len(name) > 27 else name.ljust(27)
+        nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
+        xp_fmt = str(doc.get('xp', 0)).rjust(4)
+        next_xp = xp_para_subir(doc.get('nivel', 0))
+        # muestra también el xp necesario para subir de nivel
+        lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
+    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 
+    text = "```\n" + "\n".join(lines) + "\n```"
     btns = []
     if page > 1:
         btns.append(InlineKeyboardButton("◀️", callback_data=f"top_{page-1}_{collec.name}"))
@@ -295,12 +305,12 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await ensure_monthly_state(chat.id)
     text, kb = await send_top_page(context.bot, chat.id, 1, db_monthly)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode=None)
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def levtopacumulado(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     text, kb = await send_top_page(context.bot, chat.id, 1, xp_collection)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode=None)
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.callback_query.data.split("_")
@@ -308,7 +318,7 @@ async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col_name = "_".join(parts[2:])
     collec = xp_collection if col_name == "xp_usuarios" else db_monthly
     text, kb = await send_top_page(context.bot, update.effective_chat.id, page, collec)
-    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode=None)
+    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
