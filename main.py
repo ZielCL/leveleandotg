@@ -3,7 +3,6 @@ import logging
 import random
 import math
 import threading
-import re
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import nest_asyncio
@@ -54,7 +53,6 @@ alerts_collection = db.level_alerts
 stats_collection  = db.user_stats     # conteo top3 y meses pasados
 
 # ─── Helpers ──────────────────────────────────────────────────────
-
 def xp_para_subir(nivel: int) -> int:
     """Calcula XP necesaria para subir del nivel n al n+1."""
     return 100 + 7 * (nivel - 1)
@@ -62,15 +60,6 @@ def xp_para_subir(nivel: int) -> int:
 def make_key(chat_id: int, user_id: int) -> str:
     """Genera clave única chat_usuario."""
     return f"{chat_id}_{user_id}"
-
-def clean_name(name, maxlen=12):
-    # Solo letras, números y espacios (incluye acentos y ñ), quita lo demás
-    name_clean = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚüÜñÑ ]', '', name)
-    name_clean = name_clean.strip()
-    if len(name_clean) > maxlen:
-        name_clean = name_clean[:maxlen-1] + "…"
-    # Rellena con espacios para tener ancho fijo
-    return name_clean.ljust(maxlen)
 
 async def rollover_month(chat_id: int):
     """Cierra el mes: guarda top3 en stats y limpia XP mensual."""
@@ -112,15 +101,15 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
 
     lines = []
     lines.append(f"🏆 XP Ranking (página {page}/{pages}):")
-    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
-    lines.append("┃ #  Usuario      Nv:   XP   / Siguiente            ┃")
-    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
+    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+    lines.append("┃ #  Usuario                        Nv:   XP  / Siguiente┃")
+    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
-            name = f"User{uid}"
+            name = f"User {uid}"
         if idx == 1:
             pos = "🥇"
         elif idx == 2:
@@ -129,16 +118,17 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
             pos = "🥉"
         else:
             pos = f"{idx:>2}."
-        name_fmt = clean_name(name, 12)
+        name_fmt = (name[:26] + "…") if len(name) > 27 else name.ljust(27)
         nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
-        xp_fmt = str(doc.get('xp', 0)).rjust(5)
+        xp_fmt = str(doc.get('xp', 0)).rjust(4)
         next_xp = xp_para_subir(doc.get('nivel', 0))
-        req_fmt = str(next_xp).rjust(5)
-        # Muestra también el xp necesario para subir de nivel
-        lines.append(f"┃ {pos:<3} {name_fmt}   {nivel_fmt}  {xp_fmt} /{req_fmt}               ┃")
-    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+        # muestra también el xp necesario para subir de nivel
+        lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
+    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 
-    text = "```\n" + "\n".join(lines) + "\n```"
+    text = "
+\n" + "\n".join(lines) + "\n
+"
     btns = []
     if page > 1:
         btns.append(InlineKeyboardButton("◀️", callback_data=f"top_{page-1}_{collec.name}"))
@@ -196,8 +186,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
         "Para habilitarme en tu grupo:\n"
         "Añádeme como admin y luego:\n"
-        "• /levsettema `<thread_id>`: define el hilo para alertas\n"
-        "• /levalerta `<nivel>` `<mensaje>`: Define mensaje personalizado por nivel\n"
+        "• /levsettema <thread_id>: define el hilo para alertas\n"
+        "• /levalerta <nivel> <mensaje>: Define mensaje personalizado por nivel\n"
         "• /levperfil: ve tu perfil mensual/acumulado\n"
         "• /levtop: top 10 del mes\n"
         "• /levtopacumulado: top 10 acumulado\n\n"
@@ -214,7 +204,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
+            "❌ Para usar: /levsettema <thread_id> • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
@@ -222,7 +212,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"thread_id": thread_id}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Hilo de alertas configurado: `{thread_id}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Hilo de alertas configurado: {thread_id}", parse_mode="Markdown")
 
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
@@ -230,7 +220,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator", "creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if len(context.args) < 2 or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta `<nivel>` `<mensaje>`")
+        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
     await alerts_collection.update_one(
@@ -317,12 +307,12 @@ async def levtop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await ensure_monthly_state(chat.id)
     text, kb = await send_top_page(context.bot, chat.id, 1, db_monthly)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode=None)
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def levtopacumulado(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     text, kb = await send_top_page(context.bot, chat.id, 1, xp_collection)
-    await update.message.reply_text(text, reply_markup=kb, parse_mode=None)
+    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.callback_query.data.split("_")
@@ -330,7 +320,7 @@ async def top_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     col_name = "_".join(parts[2:])
     collec = xp_collection if col_name == "xp_usuarios" else db_monthly
     text, kb = await send_top_page(context.bot, update.effective_chat.id, page, collec)
-    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode=None)
+    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
 
 async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
