@@ -126,9 +126,7 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
     lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 
-    text = "
-\n" + "\n".join(lines) + "\n
-"
+    text = "```\n" + "\n".join(lines) + "\n```"
     btns = []
     if page > 1:
         btns.append(InlineKeyboardButton("◀️", callback_data=f"top_{page-1}_{collec.name}"))
@@ -186,8 +184,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
         "Para habilitarme en tu grupo:\n"
         "Añádeme como admin y luego:\n"
-        "• /levsettema <thread_id>: define el hilo para alertas\n"
-        "• /levalerta <nivel> <mensaje>: Define mensaje personalizado por nivel\n"
+        "• /levsettema `<thread_id>`: define el hilo para alertas\n"
+        "• /levalerta `<nivel>` `<mensaje>`: Define mensaje personalizado por nivel\n"
         "• /levperfil: ve tu perfil mensual/acumulado\n"
         "• /levtop: top 10 del mes\n"
         "• /levtopacumulado: top 10 acumulado\n\n"
@@ -204,7 +202,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Para usar: /levsettema <thread_id> • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
+            "❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
@@ -212,7 +210,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"thread_id": thread_id}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Hilo de alertas configurado: {thread_id}", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Hilo de alertas configurado: `{thread_id}`", parse_mode="Markdown")
 
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
@@ -220,7 +218,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator", "creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if len(context.args) < 2 or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
+        return await update.message.reply_text("❌ Uso: /levalerta `<nivel>` `<mensaje>`")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
     await alerts_collection.update_one(
