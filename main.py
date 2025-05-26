@@ -354,7 +354,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         xp = rec.get("xp", 0)
         lvl = rec.get("nivel", 0)
 
-    gan = random.randint(20, 30) if msg.photo else random.randint(7, 10)
+    gan = random.randint(11, 16) if msg.photo else random.randint(7, 10)
     xp_nuevo = xp + gan
     req = xp_para_subir(lvl)
 
