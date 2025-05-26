@@ -9,6 +9,7 @@ import nest_asyncio
 import motor.motor_asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -122,6 +123,7 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
         xp_fmt = str(doc.get('xp', 0)).rjust(4)
         next_xp = xp_para_subir(doc.get('nivel', 0))
+        # muestra también el xp necesario para subir de nivel
         lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
     lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
 
@@ -146,32 +148,6 @@ async def get_rank_and_total(collec, chat_id, nivel, xp):
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
     return higher+1, total
 
-# ─── Comando /restarlev ──────────────────────────────────────────
-async def restarlev(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    admin = update.effective_user
-
-    m = await context.bot.get_chat_member(chat.id, admin.id)
-    if m.status not in ("administrator", "creator"):
-        return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
-
-    if not context.message.reply_to_message or not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Debes responder a un mensaje de la persona y escribir la cantidad de niveles a restar. Ejemplo: /restarlev 2")
-
-    objetivo = context.message.reply_to_message.from_user
-    cantidad = int(context.args[0])
-    if cantidad < 1:
-        return await update.message.reply_text("❌ El nivel a restar debe ser mayor a 0.")
-
-    key = make_key(chat.id, objetivo.id)
-    nivel_nuevo = 0
-    for collec in [xp_collection, db_monthly]:
-        doc = await collec.find_one({"_id": key})
-        nivel_actual = doc.get("nivel", 0) if doc else 0
-        nivel_nuevo = max(nivel_actual - cantidad, 0)
-        await collec.update_one({"_id": key}, {"$set": {"nivel": nivel_nuevo, "xp": 0}}, upsert=True)
-    await update.message.reply_text(f"✅ Nivel de {objetivo.mention_html()} restado en {cantidad}. Ahora es nivel {nivel_nuevo}.", parse_mode="HTML")
-
 # ─── Startup ──────────────────────────────────────────────────────
 async def on_startup(app):
     logger.info("✅ Bot arrancando")
@@ -186,7 +162,9 @@ async def on_startup(app):
         BotCommand("levtop",          "📈 Top XP del mes"),
         BotCommand("levtopacumulado", "📊 Top XP acumulado"),
         BotCommand("levcomandos",     "📜 Lista de todos los comandos"),
+        BotCommand("restarlev",       "🔻 Resta niveles a un usuario (admin)"),
     ])
+    # Avisar operatividad solo en hilos si corresponde
     async for cfg in config_collection.find({}):
         chat_id = cfg["_id"]
         thread_id = cfg.get("thread_id")
@@ -202,14 +180,79 @@ async def on_startup(app):
         except Forbidden:
             await config_collection.delete_one({"_id": chat_id})
 
-# ─── Comandos ─────────────────────────────────────────────────────
+# ─── Comando /restarlev ──────────────────────────────────────────
+async def restarlev(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    admin = update.effective_user
+
+    # Solo admin o creador puede usar el comando
+    m = await context.bot.get_chat_member(chat.id, admin.id)
+    if m.status not in ("administrator", "creator"):
+        return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
+
+    # Determinar usuario objetivo
+    if update.message.reply_to_message:
+        target_user = update.message.reply_to_message.from_user
+        try:
+            cantidad = int(context.args[0])
+        except (IndexError, ValueError):
+            return await update.message.reply_text("❌ Uso correcto: responde a un mensaje y escribe /restarlev <cantidad>")
+    else:
+        if not context.args or len(context.args) < 2:
+            return await update.message.reply_text("❌ Uso correcto: /restarlev @usuario <cantidad>")
+        username = context.args[0]
+        if not username.startswith("@"):
+            return await update.message.reply_text("❌ Debes mencionar con @usuario.")
+        username = username[1:]
+        # Buscar en miembros del grupo (solo admins y recientes, mejor esfuerzo)
+        target_user = None
+        try:
+            async for member in context.bot.get_chat_administrators(chat.id):
+                if member.user.username and member.user.username.lower() == username.lower():
+                    target_user = member.user
+                    break
+            if not target_user:
+                chat_members = await context.bot.get_chat(chat.id)
+                if hasattr(chat_members, "username") and chat_members.username and chat_members.username.lower() == username.lower():
+                    target_user = chat_members
+            if not target_user:
+                return await update.message.reply_text("❌ Usuario no encontrado. Usa mejor respondiendo a un mensaje.")
+        except Exception:
+            return await update.message.reply_text("❌ No pude buscar el usuario. Usa mejor respondiendo a un mensaje.")
+        try:
+            cantidad = int(context.args[1])
+        except (IndexError, ValueError):
+            return await update.message.reply_text("❌ Uso correcto: /restarlev @usuario <cantidad>")
+
+    if cantidad < 1:
+        return await update.message.reply_text("❌ La cantidad debe ser mayor a 0.")
+
+    key = make_key(chat.id, target_user.id)
+    rec_total = await xp_collection.find_one({"_id": key}) or {"nivel": 1, "xp": 0}
+    rec_mes   = await db_monthly.find_one({"_id": key}) or {"nivel": 1, "xp": 0}
+    old_total = rec_total.get("nivel", 1)
+    old_mes = rec_mes.get("nivel", 1)
+
+    nuevo_total = max(1, old_total - cantidad)
+    nuevo_mes = max(1, old_mes - cantidad)
+
+    await xp_collection.update_one({"_id": key}, {"$set": {"nivel": nuevo_total, "xp": 0}}, upsert=True)
+    await db_monthly.update_one({"_id": key}, {"$set": {"nivel": nuevo_mes, "xp": 0}}, upsert=True)
+
+    mention = f'<a href="tg://user?id={target_user.id}">{target_user.full_name}</a>'
+    await update.message.reply_text(
+        f"🔻 {mention} ahora tiene nivel <b>{nuevo_total}</b> (acumulado), <b>{nuevo_mes}</b> (mensual).",
+        parse_mode=ParseMode.HTML
+    )
+
+# ─── Comandos originales y principales ───────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 * ¡Hola! Soy tu bot LeveleandoTG*:\n"
         "Para habilitarme en tu grupo:\n"
         "Añádeme como admin y luego:\n"
-        "• /levsettema `<thread_id>`: define el hilo para alertas\n"
-        "• /levalerta `<nivel>` `<mensaje>`: Define mensaje personalizado por nivel\n"
+        "• /levsettema <thread_id>: define el hilo para alertas\n"
+        "• /levalerta <nivel> <mensaje>: Define mensaje personalizado por nivel\n"
         "• /levperfil: ve tu perfil mensual/acumulado\n"
         "• /levtop: top 10 del mes\n"
         "• /levtopacumulado: top 10 acumulado\n\n"
@@ -226,7 +269,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if not context.args or not context.args[0].isdigit():
         return await update.message.reply_text(
-            "❌ Para usar: /levsettema `<thread_id>` • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
+            "❌ Para usar: /levsettema <thread_id> • En Telegram Desktop/Web, copia el enlace de un mensaje en el tema donde quieras activar esta alerta → el número antes del segundo / es el thread_id."
         )
     thread_id = int(context.args[0])
     await config_collection.update_one(
@@ -234,7 +277,7 @@ async def levsettema(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$set": {"thread_id": thread_id}},
         upsert=True
     )
-    await update.message.reply_text(f"✅ Hilo de alertas configurado: `{thread_id}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Hilo de alertas configurado: {thread_id}", parse_mode="Markdown")
 
 async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat, user = update.effective_chat, update.effective_user
@@ -242,7 +285,7 @@ async def levalerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m.status not in ("administrator", "creator"):
         return await update.message.reply_text("❌ Solo admins pueden usar este comando.")
     if len(context.args) < 2 or not context.args[0].isdigit():
-        return await update.message.reply_text("❌ Uso: /levalerta `<nivel>` `<mensaje>`")
+        return await update.message.reply_text("❌ Uso: /levalerta <nivel> <mensaje>")
     nivel = int(context.args[0])
     mensaje = " ".join(context.args[1:])
     await alerts_collection.update_one(
@@ -352,7 +395,8 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/levperfil — perfil mensual y botones",
         "/levtop — top 10 del mes",
         "/levtopacumulado — top 10 total",
-        "/levcomandos — lista de comandos"
+        "/levcomandos — lista de comandos",
+        "/restarlev — restar niveles a un usuario (admin)"
     ]
     await update.message.reply_text("📜 *Comandos disponibles:*\n" + "\n".join(lines), parse_mode="Markdown")
 
@@ -441,7 +485,7 @@ def main():
     app.add_handler(CommandHandler("levtopacumulado", levtopacumulado))
     app.add_handler(CallbackQueryHandler(top_callback, pattern=r"^top_"))
     app.add_handler(CommandHandler("levcomandos", levcomandos))
-    app.add_handler(CommandHandler("restarlev", restarlev)) # <- AGREGADO
+    app.add_handler(CommandHandler("restarlev", restarlev))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.run_polling()
 
