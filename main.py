@@ -100,11 +100,17 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         .sort([("nivel", -1), ("xp", -1)]) \
         .skip((page-1)*10).limit(10).to_list(10)
 
+    # Diseño monoespaciado mejorado
+    head =  "╔════════╦══════════════════════════════════╦═════╦══════╦══════════╗"
+    title = "║   #    ║ Usuario                        ║  Nv ║  XP  ║  Siguiente ║"
+    sep =   "╠════════╬══════════════════════════════════╬═════╬══════╬══════════╣"
+    foot =  "╚════════╩══════════════════════════════════╩═════╩══════╩══════════╝"
+
     lines = []
     lines.append(f"🏆 XP Ranking (página {page}/{pages}):")
-    lines.append("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
-    lines.append("┃ #  Usuario                        Nv:   XP  / Siguiente┃")
-    lines.append("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫")
+    lines.append(head)
+    lines.append(title)
+    lines.append(sep)
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
@@ -119,13 +125,15 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
             pos = "🥉"
         else:
             pos = f"{idx:>2}."
-        name_fmt = (name[:26] + "…") if len(name) > 27 else name.ljust(27)
-        nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
+        # Formato de celdas
+        pos_fmt = f"{pos:<6}"
+        name_fmt = (name[:30] + "…") if len(name) > 31 else name.ljust(32)
+        nivel_fmt = str(doc.get('nivel', 0)).rjust(3)
         xp_fmt = str(doc.get('xp', 0)).rjust(4)
         next_xp = xp_para_subir(doc.get('nivel', 0))
-        # muestra también el xp necesario para subir de nivel
-        lines.append(f"{pos} {name_fmt} Nv:{nivel_fmt} XP:{xp_fmt} / {next_xp}")
-    lines.append("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+        next_fmt = str(next_xp).rjust(7)
+        lines.append(f"║ {pos_fmt} ║ {name_fmt} ║ {nivel_fmt} ║ {xp_fmt} ║ {next_fmt} ║")
+    lines.append(foot)
 
     text = "```\n" + "\n".join(lines) + "\n```"
     btns = []
@@ -400,6 +408,28 @@ async def levcomandos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("📜 *Comandos disponibles:*\n" + "\n".join(lines), parse_mode="Markdown")
 
+# Cambia esto por TU USER ID de Telegram (entero)
+MI_USER_ID = 1111798714  # <-- reemplaza con tu ID real
+
+async def reiniciarmes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if user.id != MI_USER_ID:
+        return await update.message.reply_text("⛔ No tienes permisos para esto.")
+
+    await db_monthly.delete_many({"_id": {"$regex": f"^{chat.id}_"}})
+    await config_collection.update_one(
+        {"_id": chat.id},
+        {"$set": {"last_month": datetime.utcnow().month}},
+        upsert=True
+    )
+    await update.message.reply_text(
+        "✅ El ranking mensual fue REINICIADO solo para este grupo.\n(No afecta el ranking acumulado)"
+    )
+
+
+# ─── Mensajería y XP ─────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.from_user.is_bot:
@@ -411,29 +441,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     key = make_key(chat.id, user.id)
     rec = await xp_collection.find_one({"_id": key})
+    rec_mes = await db_monthly.find_one({"_id": key})
+
     if rec is None:
-        xp, lvl = 0, 0
-        await xp_collection.insert_one({"_id": key, "xp": xp, "nivel": lvl})
-        await db_monthly.insert_one({"_id": key, "xp": xp, "nivel": lvl})
+        await xp_collection.insert_one({"_id": key, "xp": 0, "nivel": 1})
+        await db_monthly.insert_one({"_id": key, "xp": 0, "nivel": 1})
+        xp, lvl = 0, 1
+        xp_m, lvl_m = 0, 1
+    elif rec_mes is None:
+        await db_monthly.insert_one({"_id": key, "xp": 0, "nivel": 1})
+        xp = rec.get("xp", 0)
+        lvl = rec.get("nivel", 0)
+        xp_m, lvl_m = 0, 1
     else:
         xp = rec.get("xp", 0)
         lvl = rec.get("nivel", 0)
+        xp_m = rec_mes.get("xp", 0)
+        lvl_m = rec_mes.get("nivel", 0)
 
     gan = random.randint(11, 16) if msg.photo else random.randint(7, 10)
     xp_nuevo = xp + gan
+    xp_m_nuevo = xp_m + gan
     req = xp_para_subir(lvl)
+    req_m = xp_para_subir(lvl_m)
 
+    # Subida de nivel acumulado
     if xp_nuevo >= req and lvl < 100:
         lvl += 1
         xp_nuevo = 0
-        falta = xp_para_subir(lvl)
-        await xp_collection.update_one(
-            {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
-        )
-        await db_monthly.update_one(
-            {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
-        )
+    # Subida de nivel mensual
+    if xp_m_nuevo >= req_m and lvl_m < 100:
+        lvl_m += 1
+        xp_m_nuevo = 0
+
+    await xp_collection.update_one(
+        {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
+    )
+    await db_monthly.update_one(
+        {"_id": key}, {"$set": {"xp": xp_m_nuevo, "nivel": lvl_m}}, upsert=True
+    )
+
+    # Mensaje de subida de nivel
+    if (xp_nuevo == 0 and lvl < 101) or (xp_m_nuevo == 0 and lvl_m < 101):
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+        falta = xp_para_subir(lvl)
         text = (f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl}</b>!\n"
                 f"XP necesaria para siguiente nivel: <b>{falta}</b>")
         alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
@@ -465,14 +516,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
         except BadRequest as e:
             logger.warning(f"Error enviando alerta de nivel: {e}")
-    else:
-        await xp_collection.update_one(
-            {"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True
-        )
-        await db_monthly.update_one(
-            {"_id": key}, {"$set": {"xp": xp_nuevo}}, upsert=True
-        )
 
+# ─── MAIN ────────────────────────────────────────────────────────
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(CommandHandler("start", start))
@@ -487,7 +532,9 @@ def main():
     app.add_handler(CommandHandler("levcomandos", levcomandos))
     app.add_handler(CommandHandler("restarlev", restarlev))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("reiniciarmes", reiniciarmes))
     app.run_polling()
+    
 
 if __name__ == "__main__":
     main()
