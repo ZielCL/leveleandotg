@@ -53,6 +53,23 @@ config_collection = db.temas_configurados
 alerts_collection = db.level_alerts
 stats_collection  = db.user_stats     # conteo top3 y meses pasados
 
+from wcwidth import wcswidth
+
+def corta_nombre(nombre, max_width=12):
+    """Recorta nombres para que no sobrepasen el ancho visual en la tabla (ideal móvil)."""
+    ancho = 0
+    resultado = ""
+    for char in nombre:
+        char_width = wcswidth(char)
+        if ancho + char_width > max_width - 1:
+            return resultado + "…"
+        resultado += char
+        ancho += char_width
+    return resultado
+
+
+
+
 # ─── Helpers ──────────────────────────────────────────────────────
 def xp_para_subir(nivel: int) -> int:
     """Calcula XP necesaria para subir del nivel n al n+1."""
@@ -89,8 +106,8 @@ async def ensure_monthly_state(chat_id: int):
 
 async def send_top_page(bot, chat_id: int, page: int, collec):
     """
-    Genera texto y botones para paginar ranking de una colección, 
-    usando bloque de código para mayor ancho.
+    Genera texto y botones para paginar ranking de una colección.
+    Tabla móvil: compacta y que no se desborda con nombres raros.
     """
     prefix = f"{chat_id}_"
     total = await collec.count_documents({"_id": {"$regex": f"^{prefix}"}})
@@ -100,40 +117,34 @@ async def send_top_page(bot, chat_id: int, page: int, collec):
         .sort([("nivel", -1), ("xp", -1)]) \
         .skip((page-1)*10).limit(10).to_list(10)
 
-    # Diseño monoespaciado mejorado
-    head =  "╔════════╦══════════════════════════════════╦═════╦══════╦══════════╗"
-    title = "║   #    ║ Usuario                        ║  Nv ║  XP  ║  Siguiente ║"
-    sep =   "╠════════╬══════════════════════════════════╬═════╬══════╬══════════╣"
-    foot =  "╚════════╩══════════════════════════════════╩═════╩══════╩══════════╝"
-
     lines = []
     lines.append(f"🏆 XP Ranking (página {page}/{pages}):")
-    lines.append(head)
-    lines.append(title)
-    lines.append(sep)
+    lines.append(" #   Usuario        Nv XP   Sig.")
+    lines.append("────────────────────────────────────")
     for idx, doc in enumerate(docs, start=(page-1)*10+1):
         uid = int(doc["_id"].split("_", 1)[1])
         try:
             name = (await bot.get_chat_member(chat_id, uid)).user.full_name
         except:
             name = f"User {uid}"
+        # Top 3 con emoji, luego solo número
         if idx == 1:
-            pos = "🥇"
+            pos_emoji = "🥇"
         elif idx == 2:
-            pos = "🥈"
+            pos_emoji = "🥈"
         elif idx == 3:
-            pos = "🥉"
+            pos_emoji = "🥉"
         else:
-            pos = f"{idx:>2}."
-        # Formato de celdas
-        pos_fmt = f"{pos:<6}"
-        name_fmt = (name[:30] + "…") if len(name) > 31 else name.ljust(32)
-        nivel_fmt = str(doc.get('nivel', 0)).rjust(3)
-        xp_fmt = str(doc.get('xp', 0)).rjust(4)
+            pos_emoji = f"{idx:>2}"
+
+        # Nombre ajustado para móvil
+        name_fmt = corta_nombre(name, max_width=12)
+        nivel_fmt = str(doc.get('nivel', 0)).rjust(2)
+        xp_fmt = str(doc.get('xp', 0)).rjust(3)
         next_xp = xp_para_subir(doc.get('nivel', 0))
-        next_fmt = str(next_xp).rjust(7)
-        lines.append(f"║ {pos_fmt} ║ {name_fmt} ║ {nivel_fmt} ║ {xp_fmt} ║ {next_fmt} ║")
-    lines.append(foot)
+        next_fmt = str(next_xp).rjust(4)
+        # Compacta para móvil
+        lines.append(f"{pos_emoji:<2} | {name_fmt:<12} |{nivel_fmt}|{xp_fmt}|{next_fmt}")
 
     text = "```\n" + "\n".join(lines) + "\n```"
     btns = []
@@ -451,13 +462,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif rec_mes is None:
         await db_monthly.insert_one({"_id": key, "xp": 0, "nivel": 1})
         xp = rec.get("xp", 0)
-        lvl = rec.get("nivel", 0)
+        lvl = rec.get("nivel", 1)
         xp_m, lvl_m = 0, 1
     else:
         xp = rec.get("xp", 0)
-        lvl = rec.get("nivel", 0)
+        lvl = rec.get("nivel", 1)
         xp_m = rec_mes.get("xp", 0)
-        lvl_m = rec_mes.get("nivel", 0)
+        lvl_m = rec_mes.get("nivel", 1)
 
     gan = random.randint(11, 16) if msg.photo else random.randint(7, 10)
     xp_nuevo = xp + gan
@@ -465,19 +476,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     req = xp_para_subir(lvl)
     req_m = xp_para_subir(lvl_m)
 
-    subio_acumulado = False
-    subio_mensual = False
+    # Guarda niveles anteriores para comparar
+    old_lvl = lvl
+    old_lvl_m = lvl_m
 
     # Subida de nivel acumulado
     if xp_nuevo >= req and lvl < 100:
         lvl += 1
         xp_nuevo = 0
-        subio_acumulado = True
     # Subida de nivel mensual
     if xp_m_nuevo >= req_m and lvl_m < 100:
         lvl_m += 1
         xp_m_nuevo = 0
-        subio_mensual = True
 
     await xp_collection.update_one(
         {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
@@ -486,20 +496,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"_id": key}, {"$set": {"xp": xp_m_nuevo, "nivel": lvl_m}}, upsert=True
     )
 
-    # SOLO ENVIAR MENSAJE SI SUBE DE NIVEL MENSUAL (o acumulado si quieres, solo uno)
-    if subio_mensual:
-        mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+    # Chequear si subió de nivel, solo mostrar uno: prioridad mensual
+    subio_nivel_mensual = (xp_m_nuevo == 0 and lvl_m > old_lvl_m)
+    subio_nivel_acumulado = (xp_nuevo == 0 and lvl > old_lvl)
+
+    msg_subida = None
+    alt = None
+    tipo = None
+    if subio_nivel_mensual:
+        tipo = "mensual"
+        nivel_msg = lvl_m
         falta = xp_para_subir(lvl_m)
-        text = (f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl_m}</b> mensual!\n"
-                f"XP necesaria para siguiente nivel: <b>{falta}</b>")
         alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl_m}"})
+    elif subio_nivel_acumulado:
+        tipo = "acumulado"
+        nivel_msg = lvl
+        falta = xp_para_subir(lvl)
+        alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
+
+    if tipo:
+        mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+        msg_subida = (
+            f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{nivel_msg}</b> <b>{tipo}</b>!\n"
+            f"XP necesaria para siguiente nivel: <b>{falta}</b>"
+        )
         chat_info = await context.bot.get_chat(chat.id)
         try:
             if cfg.get("thread_id") and getattr(chat_info, "is_forum", False):
                 await context.bot.send_message(
                     chat_id=chat.id,
                     message_thread_id=cfg["thread_id"],
-                    text=text,
+                    text=msg_subida,
                     parse_mode="HTML"
                 )
                 if alt and alt.get("message"):
@@ -511,7 +538,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await context.bot.send_message(
                     chat_id=chat.id,
-                    text=text,
+                    text=msg_subida,
                     parse_mode="HTML"
                 )
                 if alt and alt.get("message"):
@@ -521,6 +548,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
         except BadRequest as e:
             logger.warning(f"Error enviando alerta de nivel: {e}")
+
 
     # Si quieres, puedes poner "elif subio_acumulado:" para enviar solo si sube el acumulado (pero normalmente no es necesario).
 
