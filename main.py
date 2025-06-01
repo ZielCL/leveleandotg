@@ -465,14 +465,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     req = xp_para_subir(lvl)
     req_m = xp_para_subir(lvl_m)
 
+    subio_acumulado = False
+    subio_mensual = False
+
     # Subida de nivel acumulado
     if xp_nuevo >= req and lvl < 100:
         lvl += 1
         xp_nuevo = 0
+        subio_acumulado = True
     # Subida de nivel mensual
     if xp_m_nuevo >= req_m and lvl_m < 100:
         lvl_m += 1
         xp_m_nuevo = 0
+        subio_mensual = True
 
     await xp_collection.update_one(
         {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
@@ -481,13 +486,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"_id": key}, {"$set": {"xp": xp_m_nuevo, "nivel": lvl_m}}, upsert=True
     )
 
-    # Mensaje de subida de nivel
-    if (xp_nuevo == 0 and lvl < 101) or (xp_m_nuevo == 0 and lvl_m < 101):
+    # SOLO ENVIAR MENSAJE SI SUBE DE NIVEL MENSUAL (o acumulado si quieres, solo uno)
+    if subio_mensual:
         mention = f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
-        falta = xp_para_subir(lvl)
-        text = (f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl}</b>!\n"
+        falta = xp_para_subir(lvl_m)
+        text = (f"🎉 <b>¡Felicidades!</b> {mention} alcanzó nivel <b>{lvl_m}</b> mensual!\n"
                 f"XP necesaria para siguiente nivel: <b>{falta}</b>")
-        alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl}"})
+        alt = await alerts_collection.find_one({"_id": f"{chat.id}_{lvl_m}"})
         chat_info = await context.bot.get_chat(chat.id)
         try:
             if cfg.get("thread_id") and getattr(chat_info, "is_forum", False):
@@ -516,6 +521,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
         except BadRequest as e:
             logger.warning(f"Error enviando alerta de nivel: {e}")
+
+    # Si quieres, puedes poner "elif subio_acumulado:" para enviar solo si sube el acumulado (pero normalmente no es necesario).
+
 
 # ─── MAIN ────────────────────────────────────────────────────────
 def main():
