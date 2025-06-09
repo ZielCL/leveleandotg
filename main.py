@@ -480,14 +480,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     old_lvl = lvl
     old_lvl_m = lvl_m
 
-    # Subida de nivel acumulado
-    if xp_nuevo >= req and lvl < 100:
+    # Subida de nivel acumulado (ilimitado)
+    if xp_nuevo >= req:
         lvl += 1
         xp_nuevo = 0
-    # Subida de nivel mensual
-    if xp_m_nuevo >= req_m and lvl_m < 100:
+    # Subida de nivel mensual (ilimitado)
+    if xp_m_nuevo >= req_m:
         lvl_m += 1
         xp_m_nuevo = 0
+
 
     await xp_collection.update_one(
         {"_id": key}, {"$set": {"xp": xp_nuevo, "nivel": lvl}}, upsert=True
