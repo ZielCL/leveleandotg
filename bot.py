@@ -8,13 +8,15 @@ import random
 import sqlite3
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import Conflict
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ContextTypes, MessageHandler, filters
 )
 
 # ── Configuración ──────────────────────────────────────────────
-TOKEN = "8220277406:AAH3woDQ-SIv6PKuQoLMM5hKAsQoVgkQgWY"  # ← reemplaza con tu token de BotFather
+import os
+TOKEN = os.environ.get("BOT_TOKEN")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -569,6 +571,14 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_id=?", (chat_id,))
     await update.message.reply_text("❌ Partida cancelada\\. Usa /nueva para empezar otra\\.", parse_mode="MarkdownV2")
 
+async def error_handler(update, ctx):
+    error = ctx.error
+    if isinstance(error, Conflict):
+        logger.critical("⚠️ Conflicto: otra instancia del bot está corriendo. Deteniendo esta.")
+        await ctx.application.stop()
+    else:
+        logger.error(f"Error: {error}")
+
 
 # ── Main ───────────────────────────────────────────────────────
 def main():
@@ -587,7 +597,8 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_categoria, pattern="^cat:"))
     app.add_handler(CallbackQueryHandler(btn_voto,      pattern="^voto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
-
+    app.add_error_handler(error_handler)
+    
     logger.info("🤖 Bot iniciado...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
