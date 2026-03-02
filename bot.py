@@ -410,11 +410,12 @@ async def resolver_votacion(chat_id, ctx, partida, jugadores, votos, message):
     )
 
     jugadores_act = get_jugadores(chat_id)
-    puntaje = "\n".join(
-        f"  {'🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'} "
-        f"{esc(j[1])}: *{j[2]} pts*"
-        for i, j in enumerate(jugadores_act)
-    )
+    lineas = []
+    for i, j in enumerate(jugadores_act):
+        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
+        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
+    puntaje = "\n".join(lineas)
+
 
     await message.reply_text(
         f"{titulo}\n\n"
@@ -435,11 +436,12 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📊 No hay puntajes aún\\. ¡Juega una partida primero\\!", parse_mode="MarkdownV2")
         return
 
-    tabla = "\n".join(
-        f"  {'🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'} "
-        f"{esc(j[1])}: *{j[2]} pts*"
-        for i, j in enumerate(jugadores)
-    )
+    lineas = []
+    for i, j in enumerate(jugadores):
+        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
+        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
+    tabla = "\n".join(lineas)
+    
     await update.message.reply_text(
         f"🏆 *Puntaje del grupo:*\n\n{tabla}",
         parse_mode="MarkdownV2"
