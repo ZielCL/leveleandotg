@@ -41,17 +41,17 @@ CATEGORIAS = {
     "📦 Objetos cotidianos": [
         "Paraguas", "Tijeras", "Termómetro", "Candado", "Espejo",
         "Calculadora", "Maletín", "Percha", "Colador", "Lupa",
-        "Destornillador", "Embudo", "Pinzas", "Brújula", "Reloj",
+        "Destornillador", "Embudo", "Pinzas", "Brújula", "Reloj", "Cuaderno", "Mesa",
     ],
     "🎨 Colores": [
-        "Turquesa", "Magenta", "Escarlata", "Índigo", "Ocre",
-        "Lavanda", "Carmesí", "Cobalto", "Marfil", "Bermellón",
-        "Cian", "Violeta", "Dorado", "Plateado", "Coral",
+        "Turquesa", "Magenta", "Escarlata", "Índigo", "Negro",
+        "Lavanda", "Carmesí", "Rosado", "Marfil", "Rojo",
+        "Amarillo", "Violeta", "Dorado", "Plateado", "Coral", "Azul", "Blanco",
     ],
     "🌐 Países": [
         "Noruega", "Brasil", "Japón", "Marruecos", "Australia",
         "Canadá", "Tailandia", "Sudáfrica", "Argentina", "Grecia",
-        "Egipto", "México", "India", "Portugal", "Colombia",
+        "Egipto", "México", "India", "Portugal", "Colombia", "Chile",
     ],
 }
 
