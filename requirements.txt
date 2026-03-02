@@ -1,7 +1,2 @@
-python-telegram-bot==20.3
-motor
-pymongo
-python-dotenv
-telegram
-nest-asyncio
-wcwidth
+python-telegram-bot==20.7
+
