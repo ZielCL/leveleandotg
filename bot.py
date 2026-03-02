@@ -6,10 +6,11 @@ Juego donde todos reciben la misma palabra excepto el impostor.
 import logging
 import random
 import sqlite3
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    ContextTypes
+    ContextTypes, MessageHandler, filters
 )
 
 # ── Configuración ──────────────────────────────────────────────
@@ -374,40 +375,59 @@ async def resolver_votacion(chat_id, ctx, partida, jugadores, votos, message):
         conteo[votado] = conteo.get(votado, 0) + 1
 
     eliminado_id = max(conteo, key=conteo.get)
-    eliminado = next((j for j in jugadores if j[0] == eliminado_id), None)
     impostor_id = partida[4]
     impostor = next((j for j in jugadores if j[0] == impostor_id), None)
+    eliminado = next((j for j in jugadores if j[0] == eliminado_id), None)
     palabra = partida[3]
     categoria = partida[2]
-
-    if eliminado_id == impostor_id:
-        ganador = "grupo"
-        titulo = "🎉 ¡El grupo ganó\\!"
-        desc = f"¡Encontraron al impostor *{esc(impostor[1])}*\\! \\+2 puntos para todos 🏆"
-        for j in jugadores:
-            if j[0] != impostor_id:
-                sumar_puntos(chat_id, j[0], 2)
-    else:
-        ganador = "impostor"
-        titulo = "🕵️ ¡El impostor ganó\\!"
-        desc = (
-            f"*{esc(impostor[1])}* era el impostor y no fue descubierto\\! \\+3 puntos 🏆\n"
-            f"Votaron incorrectamente por *{esc(eliminado[1])}*"
-        )
-        sumar_puntos(chat_id, impostor_id, 3)
-
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO historial (chat_id, ganador, palabra, categoria) VALUES (?,?,?,?)",
-            (chat_id, ganador, palabra, categoria)
-        )
-        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_id=?", (chat_id,))
 
     nombre_map = {j[0]: j[1] for j in jugadores}
     detalle_votos = "\n".join(
         f"  • {esc(nombre_map.get(v_from, '?'))} → {esc(nombre_map.get(v_to, '?'))}"
         for v_from, v_to in votos.items()
     )
+
+    if eliminado_id != impostor_id:
+        # El grupo votó mal → impostor gana directo
+        await _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, eliminado, palabra, categoria, detalle_votos, message)
+        return
+
+    # ✅ El grupo identificó al impostor → darle oportunidad de adivinar
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE partidas SET estado='adivinando' WHERE chat_id=?", (chat_id,)
+        )
+
+    # Guardar contexto para usar en el message handler
+    ctx.bot_data[f"adivinando_{chat_id}"] = {
+        "impostor_id": impostor_id,
+        "palabra": palabra,
+        "categoria": categoria,
+        "jugadores": jugadores,
+        "detalle_votos": detalle_votos,
+        "partida": partida,
+    }
+
+    await message.reply_text(
+        f"🎯 *¡El grupo votó por {esc(impostor[1])}\\!*\n\n"
+        f"🕵️ *{esc(impostor[1])}*, ¡esta es tu última oportunidad\\!\n\n"
+        f"Si adivinas la palabra secreta, *¡ganarás la ronda\\!*\n\n"
+        f"📝 Escribe tu respuesta ahora en el chat\\.\n"
+        f"_Categoría: {esc(categoria)}_",
+        parse_mode="MarkdownV2"
+    )
+
+async def _fin_grupo_gana(chat_id, ctx, jugadores, impostor, palabra, categoria, detalle_votos, message, bonus=False):
+    for j in jugadores:
+        if j[0] != impostor[0]:
+            sumar_puntos(chat_id, j[0], 2)
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO historial (chat_id, ganador, palabra, categoria) VALUES (?,?,?,?)",
+            (chat_id, "grupo", palabra, categoria)
+        )
+        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_id=?", (chat_id,))
 
     jugadores_act = get_jugadores(chat_id)
     lineas = []
@@ -416,10 +436,9 @@ async def resolver_votacion(chat_id, ctx, partida, jugadores, votos, message):
         lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
     puntaje = "\n".join(lineas)
 
-
     await message.reply_text(
-        f"{titulo}\n\n"
-        f"{desc}\n\n"
+        f"🎉 *¡El grupo ganó\\!*\n\n"
+        f"¡Encontraron al impostor *{esc(impostor[1])}* y no pudo adivinar la palabra\\!\n\n"
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
         f"*🏆 Puntaje:*\n{puntaje}\n\n"
@@ -427,6 +446,48 @@ async def resolver_votacion(chat_id, ctx, partida, jugadores, votos, message):
         parse_mode="MarkdownV2"
     )
 
+
+async def _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, eliminado, palabra, categoria, detalle_votos, message):
+    # Quitar puntos al grupo si los tenían esta ronda (no se puede revertir fácilmente, se restan 2)
+    for j in jugadores:
+        if j[0] != impostor[0]:
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE jugadores SET puntos = MAX(0, puntos - 2) WHERE chat_id=? AND user_id=?",
+                    (chat_id, j[0])
+                )
+    sumar_puntos(chat_id, impostor[0], 3)
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO historial (chat_id, ganador, palabra, categoria) VALUES (?,?,?,?)",
+            (chat_id, "impostor", palabra, categoria)
+        )
+        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_id=?", (chat_id,))
+
+    jugadores_act = get_jugadores(chat_id)
+    lineas = []
+    for i, j in enumerate(jugadores_act):
+        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
+        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
+    puntaje = "\n".join(lineas)
+
+    desc = (
+        f"*{esc(impostor[1])}* era el impostor y no fue descubierto\\! \\+3 pts 🏆\n"
+        f"Votaron incorrectamente por *{esc(eliminado[1])}*"
+        if eliminado and eliminado[0] != impostor[0]
+        else f"*{esc(impostor[1])}* adivinó la palabra correcta\\! \\+3 pts 🏆"
+    )
+
+    await message.reply_text(
+        f"🕵️ *¡El impostor ganó\\!*\n\n"
+        f"{desc}\n\n"
+        f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
+        f"*Votos:*\n{detalle_votos}\n\n"
+        f"*🏆 Puntaje:*\n{puntaje}\n\n"
+        "_Usa /nueva para jugar otra ronda_",
+        parse_mode="MarkdownV2"
+    )
 
 async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -447,6 +508,54 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2"
     )
 
+async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    texto = update.message.text.strip().lower()
+
+    datos = ctx.bot_data.get(f"adivinando_{chat_id}")
+    if not datos:
+        return
+
+    partida = get_partida(chat_id)
+    if not partida or partida[1] != "adivinando":
+        return
+
+    # Solo responde el impostor
+    if user.id != datos["impostor_id"]:
+        return
+
+    palabra = datos["palabra"]
+    jugadores = datos["jugadores"]
+    categoria = datos["categoria"]
+    detalle_votos = datos["detalle_votos"]
+    impostor = next((j for j in jugadores if j[0] == user.id), None)
+
+    # Limpiar el estado
+    ctx.bot_data.pop(f"adivinando_{chat_id}", None)
+
+    if texto == palabra.lower():
+        # ✅ Adivinó → impostor gana
+        await update.message.reply_text(
+            f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
+            f"La palabra era *{esc(palabra)}* y la escribió correctamente\\. ¡El impostor gana\\! 🕵️",
+            parse_mode="MarkdownV2"
+        )
+        await _fin_impostor_gana(
+            chat_id, ctx, partida, jugadores, impostor, None,
+            palabra, categoria, detalle_votos, update.message
+        )
+    else:
+        # ❌ Falló → grupo gana
+        await update.message.reply_text(
+            f"❌ *{esc(nombre(user))}* escribió *{esc(texto)}*\\.\\.\\. ¡Incorrecto\\!\n\n"
+            f"La palabra era *{esc(palabra)}*\\. ¡El grupo gana\\! 🎉",
+            parse_mode="MarkdownV2"
+        )
+        await _fin_grupo_gana(
+            chat_id, ctx, jugadores, impostor,
+            palabra, categoria, detalle_votos, update.message
+        )
 
 async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -471,6 +580,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_unirse,    pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_categoria, pattern="^cat:"))
     app.add_handler(CallbackQueryHandler(btn_voto,      pattern="^voto:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
 
     logger.info("🤖 Bot iniciado...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
