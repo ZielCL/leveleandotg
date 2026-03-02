@@ -297,13 +297,19 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             + "\n_Deben iniciar conversación con el bot primero_"
         )
 
+    orden = list(jugadores)
+    random.shuffle(orden)
+    turno_lista = "\n".join(
+        f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden)
+    )
+
     await ctx.bot.send_message(
         chat_id,
         f"🎮 *¡La partida comienza\\!*\n\n"
         f"Categoría: *{esc(categoria)}*\n\n"
-        f"*Jugadores:*\n{lista}\n\n"
-        "Cada jugador recibirá su palabra en privado\\.\n"
-        "Comenten en el grupo y cuando estén listos usen /votar 🗳️"
+        f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
+        f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
+        f"Cuando todos hayan dado su pista, usen /votar 🗳️"
         + aviso,
         parse_mode="MarkdownV2"
     )
