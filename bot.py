@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 # ── Configuración ──────────────────────────────────────────────
-TOKEN = "TU_TOKEN_AQUI"  # ← reemplaza con tu token de BotFather
+TOKEN = "8220277406:AAH3woDQ-SIv6PKuQoLMM5hKAsQoVgkQgWY"  # ← reemplaza con tu token de BotFather
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
