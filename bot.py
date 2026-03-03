@@ -255,8 +255,10 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     categoria = query.data.split(":", 1)[1]
-        if categoria == "RANDOM":
+
+    if categoria == "RANDOM":
         categoria = random.choice(list(CATEGORIAS.keys()))
+
     palabra = random.choice(CATEGORIAS[categoria])
     jugadores = get_jugadores(chat_id)
     impostor = random.choice(jugadores)
@@ -267,12 +269,13 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             (categoria, palabra, impostor[0], chat_id)
         )
 
+    texto_cat_confirmacion = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"✅ Categoría: *{esc(categoria)}*"
+
     await query.edit_message_text(
-        f"✅ Categoría: *{esc(categoria)}*\n\n📩 Enviando palabras en privado\\.\\.\\.",
+        f"{texto_cat_confirmacion}\n\n📩 Enviando palabras en privado\\.\\.\\.",
         parse_mode="MarkdownV2"
     )
 
-    # Enviar palabra en privado
     fallidos = []
     for uid, uname, _ in jugadores:
         try:
@@ -293,7 +296,12 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             fallidos.append(uname)
 
-    lista = "\n".join(f"  • {esc(j[1])}" for j in jugadores)
+    orden = list(jugadores)
+    random.shuffle(orden)
+    turno_lista = "\n".join(
+        f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden)
+    )
+
     aviso = ""
     if fallidos:
         aviso = (
@@ -302,13 +310,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             + "\n_Deben iniciar conversación con el bot primero_"
         )
 
-    orden = list(jugadores)
-    random.shuffle(orden)
-    turno_lista = "\n".join(
-        f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden)
-    )
-
-texto_cat_grupo = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"Categoría: *{esc(categoria)}*"
+    texto_cat_grupo = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"Categoría: *{esc(categoria)}*"
 
     await ctx.bot.send_message(
         chat_id,
@@ -320,7 +322,6 @@ texto_cat_grupo = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM
         + aviso,
         parse_mode="MarkdownV2"
     )
-
 
 async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
