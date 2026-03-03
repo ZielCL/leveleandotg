@@ -368,9 +368,13 @@ def get_partida(chat_key):
         ).fetchone()
 
 def get_jugadores(chat_key):
+    """Estadísticas de jugadores de la partida actual"""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_key=? ORDER BY victorias DESC",
+            """SELECT j.user_id, j.username, j.victorias, j.derrotas 
+               FROM jugadores j
+               INNER JOIN partida_jugadores pj ON j.chat_key = pj.chat_key AND j.user_id = pj.user_id
+               WHERE j.chat_key=? ORDER BY j.victorias DESC""",
             (chat_key,)
         ).fetchall()
 
@@ -713,7 +717,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     random.shuffle(orden)
     turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
 
-        orden_ids = [j[0] for j in orden]
+    orden_ids = [j[0] for j in orden]
     ctx.bot_data[f"turno_{chat_key}"] = {
         "orden": orden_ids,
         "index": 0,
@@ -742,9 +746,17 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🎮 *¡La partida comienza\\!*\n\n"
         f"{texto_cat_grupo}\n\n"
         f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
-        f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
-        f"Cuando todos hayan dado su pista, el creador usa /votar 🗳️"
+        f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\."
         + aviso,
+        parse_mode="MarkdownV2"
+    )
+
+    # Luego mencionar al primero
+    primer_usuario = orden[0]
+    await ctx.bot.send_message(
+        chat_id,
+        f"👆 *¡Es el turno de* [{esc(primer_usuario[1])}](tg://user?id={primer_usuario[0]})\\!\n"
+        f"Escribe tu pista en el chat\\. Cuando la hayas escrito, confirma con el botón\\.",
         parse_mode="MarkdownV2"
     )
 
@@ -820,7 +832,7 @@ async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Fuiste eliminado, no puedes abrir la votación.")
         return
 
-    jugadores = get_jugadores(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
     vivos = [j for j in jugadores if j[0] in vivos_ids]
 
     keyboard = [
