@@ -854,15 +854,12 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
 
     # ── Hay empate → revotación ──
     if len(empatados) > 1:
-        impostor_ids_set = set(int(i) for i in partida[5].split(","))
         jugadores = get_jugadores(chat_key)
         vivos_ids = get_vivos(chat_key)
         vivos = [j for j in jugadores if j[0] in vivos_ids]
         nombre_map = {j[0]: j[1] for j in jugadores}
-
         nombres_empatados = " y ".join(f"*{esc(nombre_map.get(e, '?'))}*" for e in empatados)
 
-        # Guardar contexto de revotación
         ctx.bot_data[f"revotacion_{chat_key}"] = {
             "candidatos": empatados,
             "partida": partida,
@@ -886,8 +883,35 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         )
         return
 
+    # ── Sin empate: procesar eliminación ──
     eliminado_id = empatados[0]
-    
+    impostor_ids_set = set(int(i) for i in partida[5].split(","))
+    impostores = [j for j in jugadores if j[0] in impostor_ids_set]
+    eliminado = next((j for j in vivos if j[0] == eliminado_id), None)
+    palabra = partida[4]
+    categoria = partida[3]
+
+    nombre_map = {j[0]: j[1] for j in jugadores}
+    detalle_votos = "\n".join(
+        f"  • {esc(nombre_map.get(v_from, '?'))} → {esc(nombre_map.get(v_to, '?'))}"
+        for v_from, v_to in votos.items()
+    )
+
+    es_impostor = eliminado_id in impostor_ids_set
+    etiqueta = "🕵️ ¡Era impostor\\!" if es_impostor else "✅ Era inocente\\."
+
+    vivos_restantes_ids = eliminar_de_vivos(chat_key, eliminado_id)
+    impostores_vivos = [j for j in impostores if j[0] in vivos_restantes_ids]
+    inocentes_vivos_ids = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+
+    await message.reply_text(
+        f"🗳️ *Resultado de la votación:*\n\n"
+        f"El grupo votó por *{esc(eliminado[1])}*\n"
+        f"{etiqueta}\n\n"
+        f"*Votos:*\n{detalle_votos}",
+        parse_mode="MarkdownV2"
+    )
+
     # ── Impostor votado → oportunidad de adivinar ──
     if es_impostor:
         with get_conn() as conn:
@@ -917,12 +941,10 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         return
 
     # ── Inocente votado ──
-    # Verificar si ya no quedan impostores
     if not impostores_vivos:
         await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message)
         return
 
-    # Victoria automática: quedan solo 2 vivos y al menos 1 es impostor
     if len(vivos_restantes_ids) <= 2:
         await _fin_impostores_ganan(
             chat_key, ctx, partida, jugadores, impostores,
@@ -930,9 +952,8 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         )
         return
 
-    # Continuar con nueva ronda
     await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
-
+    
 
 async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_set, palabra, categoria, message):
     vivos = [j for j in jugadores if j[0] in vivos_ids]
