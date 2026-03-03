@@ -579,8 +579,8 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update, ctx):
     error = ctx.error
     if isinstance(error, Conflict):
-        logger.critical("⚠️ Conflicto: otra instancia del bot está corriendo. Deteniendo esta.")
-        await ctx.application.stop()
+        logger.critical("⚠️ Conflicto de instancia. Saliendo con sys.exit...")
+        os._exit(1)  # Fuerza cierre total del proceso
     else:
         logger.error(f"Error: {error}")
 
