@@ -756,6 +756,92 @@ async def btn_voto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if len(votos) >= len(vivos):
         await resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, query.message)
+        
+
+async def btn_revoto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_key = get_chat_key(update)
+    voter_id = query.from_user.id
+
+    partida = get_partida(chat_key)
+    if not partida or partida[2] != "jugando":
+        await query.answer("La votación ya cerró.", show_alert=True)
+        return
+
+    vivos_ids = get_vivos(chat_key)
+    if voter_id not in vivos_ids:
+        await query.answer("No puedes votar: estás eliminado o no eres parte de esta partida.", show_alert=True)
+        return
+
+    datos = ctx.bot_data.get(f"revotacion_{chat_key}")
+    if not datos:
+        await query.answer("No hay revotación activa.", show_alert=True)
+        return
+
+    votado_id = int(query.data.split(":")[1])
+    if votado_id not in datos["candidatos"]:
+        await query.answer("Voto inválido.", show_alert=True)
+        return
+
+    votos = ctx.bot_data.setdefault(f"votos_{chat_key}", {})
+
+    if voter_id in votos:
+        await query.answer("Ya votaste.", show_alert=True)
+        return
+
+    votos[voter_id] = votado_id
+    await query.answer("✅ ¡Voto registrado!")
+
+    vivos = datos["vivos"]
+    faltantes = len(vivos) - len(votos)
+    await query.message.reply_text(
+        f"✅ *{esc(query.from_user.first_name)}* votó en la revotación\\. "
+        + (f"Faltan *{faltantes}* votos\\." if faltantes > 0 else ""),
+        parse_mode="MarkdownV2"
+    )
+
+    if len(votos) >= len(vivos):
+        ctx.bot_data.pop(f"revotacion_{chat_key}", None)
+
+        # Contar revotación
+        conteo2 = {}
+        for v in votos.values():
+            conteo2[v] = conteo2.get(v, 0) + 1
+
+        max_votos2 = max(conteo2.values())
+        empatados2 = [uid for uid, cnt in conteo2.items() if cnt == max_votos2]
+
+        jugadores = datos["jugadores"]
+        nombre_map = {j[0]: j[1] for j in jugadores}
+
+        if len(empatados2) > 1:
+            # Segundo empate → nadie se elimina, nueva ronda
+            impostor_ids_set = set(int(i) for i in partida[5].split(","))
+            vivos_ids = get_vivos(chat_key)
+
+            await query.message.reply_text(
+                "⚖️ *¡Segundo empate\\!*\n\n"
+                "Nadie es eliminado en esta ronda\\. ¡El juego continúa\\!\n\n"
+                "El creador usa /votar cuando estén listos\\.",
+                parse_mode="MarkdownV2"
+            )
+            return
+
+        # Hay ganador en revotación → continuar como eliminación normal
+        eliminado_id = empatados2[0]
+        impostor_ids_set = set(int(i) for i in partida[5].split(","))
+        impostores = [j for j in jugadores if j[0] in impostor_ids_set]
+        vivos_ids_actual = get_vivos(chat_key)
+        vivos_actual = [j for j in jugadores if j[0] in vivos_ids_actual]
+        eliminado = next((j for j in vivos_actual if j[0] == eliminado_id), None)
+
+        nombre_map2 = {j[0]: j[1] for j in jugadores}
+        detalle_votos = "\n".join(
+            f"  • {esc(nombre_map2.get(v_from, '?'))} → {esc(nombre_map2.get(v_to, '?'))}"
+            for v_from, v_to in votos.items()
+        )
+
+        await resolver_votacion(chat_key, ctx, partida, jugadores, vivos_actual, votos, query.message)
 
 
 async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, message):
@@ -763,35 +849,45 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
     for votado in votos.values():
         conteo[votado] = conteo.get(votado, 0) + 1
 
-    eliminado_id = max(conteo, key=conteo.get)
-    impostor_ids_set = set(int(i) for i in partida[5].split(","))
-    impostores = [j for j in jugadores if j[0] in impostor_ids_set]
-    eliminado = next((j for j in vivos if j[0] == eliminado_id), None)
-    palabra = partida[4]
-    categoria = partida[3]
+    max_votos = max(conteo.values())
+    empatados = [uid for uid, cnt in conteo.items() if cnt == max_votos]
 
-    nombre_map = {j[0]: j[1] for j in jugadores}
-    detalle_votos = "\n".join(
-        f"  • {esc(nombre_map.get(v_from, '?'))} → {esc(nombre_map.get(v_to, '?'))}"
-        for v_from, v_to in votos.items()
-    )
+    # ── Hay empate → revotación ──
+    if len(empatados) > 1:
+        impostor_ids_set = set(int(i) for i in partida[5].split(","))
+        jugadores = get_jugadores(chat_key)
+        vivos_ids = get_vivos(chat_key)
+        vivos = [j for j in jugadores if j[0] in vivos_ids]
+        nombre_map = {j[0]: j[1] for j in jugadores}
 
-    es_impostor = eliminado_id in impostor_ids_set
-    etiqueta = "🕵️ ¡Era impostor\\!" if es_impostor else "✅ Era inocente\\."
+        nombres_empatados = " y ".join(f"*{esc(nombre_map.get(e, '?'))}*" for e in empatados)
 
-    # Eliminar al votado de los vivos
-    vivos_restantes_ids = eliminar_de_vivos(chat_key, eliminado_id)
-    impostores_vivos = [j for j in impostores if j[0] in vivos_restantes_ids]
-    inocentes_vivos_ids = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+        # Guardar contexto de revotación
+        ctx.bot_data[f"revotacion_{chat_key}"] = {
+            "candidatos": empatados,
+            "partida": partida,
+            "jugadores": jugadores,
+            "vivos": vivos,
+        }
 
-    await message.reply_text(
-        f"🗳️ *Resultado de la votación:*\n\n"
-        f"El grupo votó por *{esc(eliminado[1])}*\n"
-        f"{etiqueta}\n\n"
-        f"*Votos:*\n{detalle_votos}",
-        parse_mode="MarkdownV2"
-    )
+        keyboard = [
+            [InlineKeyboardButton(f"🗳️ {nombre_map.get(uid, '?')}", callback_data=f"revoto:{uid}")]
+            for uid in empatados
+        ]
+        ctx.bot_data[f"votos_{chat_key}"] = {}
 
+        await message.reply_text(
+            f"⚖️ *¡Empate\\!*\n\n"
+            f"{nombres_empatados} tienen *{max_votos} votos* cada uno\\.\n\n"
+            f"🔁 *Revotación* — Solo entre los empatados:\n"
+            f"_Jugadores vivos, voten de nuevo:_",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    eliminado_id = empatados[0]
+    
     # ── Impostor votado → oportunidad de adivinar ──
     if es_impostor:
         with get_conn() as conn:
@@ -1044,6 +1140,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
     app.add_handler(CallbackQueryHandler(btn_categoria,       pattern="^cat:"))
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
+    app.add_handler(CallbackQueryHandler(btn_revoto, pattern="^revoto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
     app.add_error_handler(error_handler)
 
