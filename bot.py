@@ -616,8 +616,7 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "INSERT OR REPLACE INTO partidas (chat_key, chat_id, estado, creador_id, ronda) VALUES (?,?,?,?,1)",
             (chat_key, chat_id, "esperando", user.id)
         )
-        conn.execute("UPDATE jugadores SET victorias=0, derrotas=0 WHERE chat_key=?", (chat_key,))
-
+        
     upsert_jugador(chat_key, user.id, nombre(user))
 
     keyboard = [[InlineKeyboardButton("✋ Unirse a la partida", callback_data="unirse")]]
