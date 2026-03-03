@@ -423,9 +423,15 @@ def esc(text):
     return "".join(f"\\{c}" if c in chars else c for c in str(text))
 
 def get_chat_key(update):
-    chat_id = update.effective_chat.id
-    thread_id = update.effective_message.message_thread_id if update.effective_message else None
-    return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
+    chat = update.effective_chat
+    chat_id = chat.id
+    
+    # Solo usar thread_id en supergrupos con temas (foros) activados
+    if getattr(chat, "is_forum", False) and update.effective_message:
+        thread_id = update.effective_message.message_thread_id
+        return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
+    
+    return str(chat_id))
 
 def get_chat_key_from_ids(chat_id, thread_id):
     return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
