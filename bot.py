@@ -999,7 +999,8 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
     vivos_restantes_ids = eliminar_de_vivos(chat_key, eliminado_id)
     impostores_vivos = [j for j in impostores if j[0] in vivos_restantes_ids]
     inocentes_vivos_ids = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
-        # ── Transferir creador si fue eliminado ──
+
+    # ── Transferir creador si fue eliminado ──
     if eliminado_id == partida[8] and vivos_restantes_ids:
         with get_conn() as conn:
             conn.execute(
@@ -1074,7 +1075,7 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
 
-        # ── Anunciar nuevo creador si cambió ──
+    # ── Anunciar nuevo creador si cambió ──
     partida_actual = get_partida(chat_key)
     if partida_actual[8] == orden_ids[0]:
         nombre_nuevo = orden[0][1]
