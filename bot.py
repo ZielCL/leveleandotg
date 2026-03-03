@@ -492,7 +492,8 @@ def init_db():
             chat_id     INTEGER,
             user_id     INTEGER,
             username    TEXT,
-            puntos      INTEGER DEFAULT 0,
+            victorias   INTEGER DEFAULT 0,
+            derrotas    INTEGER DEFAULT 0,
             UNIQUE(chat_id, user_id)
         );
         CREATE TABLE IF NOT EXISTS historial (
@@ -521,7 +522,7 @@ def get_partida(chat_id):
 def get_jugadores(chat_id):
     with get_conn() as conn:
         return conn.execute(
-            "SELECT user_id, username, puntos FROM jugadores WHERE chat_id=? ORDER BY puntos DESC",
+            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_id=? ORDER BY victorias DESC",
             (chat_id,)
         ).fetchall()
 
@@ -536,11 +537,18 @@ def upsert_jugador(chat_id, user_id, username):
             (username, chat_id, user_id)
         )
 
-def sumar_puntos(chat_id, user_id, puntos):
+def sumar_victoria(chat_id, user_id):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jugadores SET puntos = puntos + ? WHERE chat_id=? AND user_id=?",
-            (puntos, chat_id, user_id)
+            "UPDATE jugadores SET victorias = victorias + 1 WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id)
+        )
+
+def sumar_derrota(chat_id, user_id):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET derrotas = derrotas + 1 WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id)
         )
 
 def nombre(user):
@@ -589,7 +597,7 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "INSERT OR REPLACE INTO partidas (chat_id, estado, creador_id, ronda) VALUES (?,?,?,1)",
             (chat_id, "esperando", user.id)
         )
-        conn.execute("DELETE FROM jugadores WHERE chat_id=?", (chat_id,))
+        conn.execute("UPDATE jugadores SET victorias=0, derrotas=0 WHERE chat_id=?", (chat_id,))
 
     upsert_jugador(chat_id, user.id, nombre(user))
 
@@ -890,7 +898,8 @@ async def resolver_votacion(chat_id, ctx, partida, jugadores, votos, message):
 async def _fin_grupo_gana(chat_id, ctx, jugadores, impostor, palabra, categoria, detalle_votos, message, bonus=False):
     for j in jugadores:
         if j[0] != impostor[0]:
-            sumar_puntos(chat_id, j[0], 2)
+            sumar_victoria(chat_id, j[0])
+    sumar_derrota(chat_id, impostor[0])
 
     with get_conn() as conn:
         conn.execute(
@@ -901,32 +910,26 @@ async def _fin_grupo_gana(chat_id, ctx, jugadores, impostor, palabra, categoria,
 
     jugadores_act = get_jugadores(chat_id)
     lineas = []
-    for i, j in enumerate(jugadores_act):
-        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
-        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
-    puntaje = "\n".join(lineas)
+    for j in jugadores_act:
+        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
+    tabla = "\n".join(lineas)
 
     await message.reply_text(
         f"🎉 *¡El grupo ganó\\!*\n\n"
         f"¡Encontraron al impostor *{esc(impostor[1])}* y no pudo adivinar la palabra\\!\n\n"
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
-        f"*🏆 Puntaje:*\n{puntaje}\n\n"
-        "_Usa /jugarimpostor para jugar otra ronda_",
+        f"*🏆 Marcador:*\n{tabla}\n\n"
+        "_Usa /jugarimpostor para otra ronda_",
         parse_mode="MarkdownV2"
     )
 
 
 async def _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, eliminado, palabra, categoria, detalle_votos, message):
-    # Quitar puntos al grupo si los tenían esta ronda (no se puede revertir fácilmente, se restan 2)
+    sumar_victoria(chat_id, impostor[0])
     for j in jugadores:
         if j[0] != impostor[0]:
-            with get_conn() as conn:
-                conn.execute(
-                    "UPDATE jugadores SET puntos = MAX(0, puntos - 2) WHERE chat_id=? AND user_id=?",
-                    (chat_id, j[0])
-                )
-    sumar_puntos(chat_id, impostor[0], 3)
+            sumar_derrota(chat_id, j[0])
 
     with get_conn() as conn:
         conn.execute(
@@ -937,16 +940,15 @@ async def _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, elimina
 
     jugadores_act = get_jugadores(chat_id)
     lineas = []
-    for i, j in enumerate(jugadores_act):
-        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
-        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
-    puntaje = "\n".join(lineas)
+    for j in jugadores_act:
+        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
+    tabla = "\n".join(lineas)
 
     desc = (
-        f"*{esc(impostor[1])}* era el impostor y no fue descubierto\\! \\+3 pts 🏆\n"
+        f"*{esc(impostor[1])}* era el impostor y no fue descubierto\\!\n"
         f"Votaron incorrectamente por *{esc(eliminado[1])}*"
         if eliminado and eliminado[0] != impostor[0]
-        else f"*{esc(impostor[1])}* adivinó la palabra correcta\\! \\+3 pts 🏆"
+        else f"*{esc(impostor[1])}* adivinó la palabra correcta\\!"
     )
 
     await message.reply_text(
@@ -954,8 +956,8 @@ async def _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, elimina
         f"{desc}\n\n"
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
-        f"*🏆 Puntaje:*\n{puntaje}\n\n"
-        "_Usa /jugarimpostor para jugar otra ronda_",
+        f"*🏆 Marcador:*\n{tabla}\n\n"
+        "_Usa /jugarimpostor para otra ronda_",
         parse_mode="MarkdownV2"
     )
 
@@ -964,17 +966,16 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     jugadores = get_jugadores(chat_id)
 
     if not jugadores:
-        await update.message.reply_text("📊 No hay puntajes aún\\. ¡Juega una partida primero\\!", parse_mode="MarkdownV2")
+        await update.message.reply_text("📊 No hay estadísticas aún\\. ¡Juega primero\\!", parse_mode="MarkdownV2")
         return
 
     lineas = []
-    for i, j in enumerate(jugadores):
-        medal = '🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else f'{i+1}\\.'
-        lineas.append(f"  {medal} {esc(j[1])}: *{j[2]} pts*")
+    for j in jugadores:
+        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
     tabla = "\n".join(lineas)
-    
+
     await update.message.reply_text(
-        f"🏆 *Puntaje del grupo:*\n\n{tabla}",
+        f"🏆 *Marcador del grupo:*\n\n{tabla}",
         parse_mode="MarkdownV2"
     )
 
