@@ -487,7 +487,7 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [[InlineKeyboardButton("✋ Unirse a la partida", callback_data="unirse")]]
     await update.message.reply_text(
-        f"🎮 *{esc(nombre(user))} creó una nueva partida\\!*\n\n"
+        f"🎮 *{esc(nombre(user))} creó una nueva partida del juego Impostor\\!*\n\n"
         "Pulsen el botón o usen /unirse para sumarse\\.\n"
         "Cuando estén listos, el creador usa /iniciar\\.",
         parse_mode="MarkdownV2",
