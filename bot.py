@@ -512,12 +512,48 @@ async def _unirse(chat_id, user, reply_fn):
     jugadores = get_jugadores(chat_id)
     lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(jugadores))
 
+    creador_id = partida[6]
+    keyboard = []
+    if len(jugadores) >= 3:
+        keyboard = [[InlineKeyboardButton("🚀 ¡Iniciar partida!", callback_data="iniciar_partida")]]
+
     await reply_fn(
         f"✅ *{esc(nombre(user))} se unió\\!*\n\n"
-        f"*Jugadores* \\({len(jugadores)}\\):\n{lista}",
-        parse_mode="MarkdownV2"
+        f"*Jugadores* \\({len(jugadores)}\\):\n{lista}\n\n"
+        + ("_El creador puede iniciar cuando quiera\\._" if len(jugadores) >= 3 else f"_Faltan {3 - len(jugadores)} jugadores más para poder iniciar\\._"),
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
 
+async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+
+    partida = get_partida(chat_id)
+    if not partida or partida[1] != "esperando":
+        await query.answer("No hay partida en espera.", show_alert=True)
+        return
+    if partida[6] != user.id:
+        await query.answer("⚠️ Solo el creador puede iniciar la partida.", show_alert=True)
+        return
+
+    jugadores = get_jugadores(chat_id)
+    if len(jugadores) < 3:
+        await query.answer(f"⚠️ Necesitas al menos 3 jugadores. Ahora hay {len(jugadores)}.", show_alert=True)
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
+        for cat in CATEGORIAS
+    ]
+    keyboard.append([InlineKeyboardButton("🎲 ¡Sorpréndeme! (Random)", callback_data="cat:RANDOM")])
+    await query.message.reply_text(
+        "🗂️ *Elige una categoría:*",
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def cmd_iniciar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -912,6 +948,7 @@ def main():
     app.add_handler(CommandHandler("cancelar", cmd_cancelar))
 
     app.add_handler(CallbackQueryHandler(btn_unirse,    pattern="^unirse$"))
+    app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
     app.add_handler(CallbackQueryHandler(btn_categoria, pattern="^cat:"))
     app.add_handler(CallbackQueryHandler(btn_voto,      pattern="^voto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
