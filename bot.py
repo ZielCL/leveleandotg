@@ -567,7 +567,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "*Comandos:*\n"
         "`/nueva` — Crear una partida\n"
         "`/unirse` — Unirse a la partida\n"
-        "`/iniciar` — Empezar \\(mín\\. 3 jugadores\\)\n"
+        "`/jugarimpostor` — Empezar \\(mín\\. 3 jugadores\\)\n"
         "`/votar` — Abrir votación final\n"
         "`/puntaje` — Ver marcador\n"
         "`/cancelar` — Cancelar partida",
@@ -1050,7 +1050,7 @@ def main():
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("nueva",    cmd_nueva))
     app.add_handler(CommandHandler("unirse",   cmd_unirse))
-    app.add_handler(CommandHandler("iniciar",  cmd_iniciar))
+    app.add_handler(CommandHandler("jugarimpostor", cmd_iniciar))
     app.add_handler(CommandHandler("votar",    cmd_votar))
     app.add_handler(CommandHandler("puntaje",  cmd_puntaje))
     app.add_handler(CommandHandler("cancelar", cmd_cancelar))
