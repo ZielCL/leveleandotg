@@ -479,14 +479,14 @@ def init_db():
     c = conn.cursor()
     c.executescript("""
         CREATE TABLE IF NOT EXISTS partidas (
-            chat_key    TEXT PRIMARY KEY,
-            chat_id     INTEGER,
-            estado      TEXT DEFAULT 'esperando',
-            categoria   TEXT,
-            palabra     TEXT,
-            impostor_id INTEGER,
-            ronda       INTEGER DEFAULT 1,
-            creador_id  INTEGER
+            chat_key        TEXT PRIMARY KEY,
+            chat_id         INTEGER,
+            estado          TEXT DEFAULT 'esperando',
+            categoria       TEXT,
+            palabra         TEXT,
+            impostor_ids    TEXT,
+            ronda           INTEGER DEFAULT 1,
+            creador_id      INTEGER
         );
         CREATE TABLE IF NOT EXISTS jugadores (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -568,6 +568,14 @@ def get_chat_key(update):
 
 def get_chat_key_from_ids(chat_id, thread_id):
     return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
+
+def calcular_num_impostores(num_jugadores):
+    if num_jugadores <= 4:
+        return 1
+    elif num_jugadores <= 6:
+        return random.randint(1, 3)
+    else:
+        return random.randint(2, 3)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -727,12 +735,15 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     palabra = random.choice(CATEGORIAS[categoria])
     jugadores = get_jugadores(chat_key)
-    impostor = random.choice(jugadores)
+    num_impostores = calcular_num_impostores(len(jugadores))
+    impostores = random.sample(jugadores, num_impostores)
+    impostor_ids = ",".join(str(i[0]) for i in impostores)
+    impostor_ids_set = set(i[0] for i in impostores)
 
     with get_conn() as conn:
         conn.execute(
-            "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_id=? WHERE chat_key=?",
-            (categoria, palabra, impostor[0], chat_key)
+            "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=? WHERE chat_key=?",
+            (categoria, palabra, impostor_ids, chat_key)
         )
 
     texto_cat_confirmacion = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"✅ Categoría: *{esc(categoria)}*"
@@ -747,7 +758,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     fallidos = []
     for uid, uname, _, _ in jugadores:
         try:
-            if uid == impostor[0]:
+            if uid in impostor_ids_set:
                 msg = (
                     "🕵️ *¡Eres el IMPOSTOR\\!*\n\n"
                     f"Categoría: *{esc(categoria)}*\n\n"
@@ -853,8 +864,8 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, votos, message):
         conteo[votado] = conteo.get(votado, 0) + 1
 
     eliminado_id = max(conteo, key=conteo.get)
-    impostor_id = partida[5]
-    impostor = next((j for j in jugadores if j[0] == impostor_id), None)
+    impostor_ids_set = set(int(i) for i in partida[5].split(","))
+    impostores = [j for j in jugadores if j[0] in impostor_ids_set]
     eliminado = next((j for j in jugadores if j[0] == eliminado_id), None)
     palabra = partida[4]
     categoria = partida[3]
@@ -865,36 +876,44 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, votos, message):
         for v_from, v_to in votos.items()
     )
 
-    if eliminado_id != impostor_id:
-        await _fin_impostor_gana(chat_key, ctx, partida, jugadores, impostor, eliminado, palabra, categoria, detalle_votos, message)
+    if eliminado_id not in impostor_ids_set:
+        # Votaron a un inocente → impostores ganan
+        await _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message)
         return
+
+    # Votaron a un impostor → ese impostor puede adivinar
+    impostor_votado = eliminado
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='adivinando' WHERE chat_key=?", (chat_key,))
 
     ctx.bot_data[f"adivinando_{chat_key}"] = {
-        "impostor_id": impostor_id,
+        "impostor_id": impostor_votado[0],
+        "impostor_ids_set": impostor_ids_set,
         "palabra": palabra,
         "categoria": categoria,
         "jugadores": jugadores,
         "detalle_votos": detalle_votos,
         "partida": partida,
+        "impostores": impostores,
     }
 
     await message.reply_text(
-        f"🎯 *¡El grupo votó por {esc(impostor[1])}\\!*\n\n"
-        f"🕵️ *{esc(impostor[1])}*, ¡esta es tu última oportunidad\\!\n\n"
-        f"Si adivinas la palabra secreta, *¡ganarás la ronda\\!*\n\n"
+        f"🎯 *¡El grupo votó por {esc(impostor_votado[1])}\\!*\n\n"
+        f"🕵️ *{esc(impostor_votado[1])}*, ¡esta es tu última oportunidad\\!\n\n"
+        f"Si adivinas la palabra secreta, *¡todos los impostores ganarán\\!*\n\n"
         f"📝 Escribe tu respuesta ahora en el chat\\.\n"
         f"_Categoría: {esc(categoria)}_",
         parse_mode="MarkdownV2"
     )
 
-async def _fin_grupo_gana(chat_key, ctx, jugadores, impostor, palabra, categoria, detalle_votos, message, bonus=False):
+async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
+    impostor_ids_set = set(j[0] for j in impostores)
     for j in jugadores:
-        if j[0] != impostor[0]:
+        if j[0] not in impostor_ids_set:
             sumar_victoria(chat_key, j[0])
-    sumar_derrota(chat_key, impostor[0])
+    for imp in impostores:
+        sumar_derrota(chat_key, imp[0])
 
     with get_conn() as conn:
         conn.execute(
@@ -904,14 +923,15 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostor, palabra, categoria
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     jugadores_act = get_jugadores(chat_key)
-    lineas = []
-    for j in jugadores_act:
-        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
+    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
     tabla = "\n".join(lineas)
+
+    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
     await message.reply_text(
         f"🎉 *¡El grupo ganó\\!*\n\n"
-        f"¡Encontraron al impostor *{esc(impostor[1])}* y no pudo adivinar la palabra\\!\n\n"
+        f"Los impostores eran: {nombres_impostores}\n"
+        f"¡No pudieron adivinar la palabra\\!\n\n"
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
         f"*🏆 Marcador:*\n{tabla}\n\n"
@@ -919,10 +939,13 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostor, palabra, categoria
         parse_mode="MarkdownV2"
     )
 
-async def _fin_impostor_gana(chat_key, ctx, partida, jugadores, impostor, eliminado, palabra, categoria, detalle_votos, message):
-    sumar_victoria(chat_key, impostor[0])
+
+async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message):
+    impostor_ids_set = set(j[0] for j in impostores)
+    for imp in impostores:
+        sumar_victoria(chat_key, imp[0])
     for j in jugadores:
-        if j[0] != impostor[0]:
+        if j[0] not in impostor_ids_set:
             sumar_derrota(chat_key, j[0])
 
     with get_conn() as conn:
@@ -933,20 +956,20 @@ async def _fin_impostor_gana(chat_key, ctx, partida, jugadores, impostor, elimin
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     jugadores_act = get_jugadores(chat_key)
-    lineas = []
-    for j in jugadores_act:
-        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
+    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
     tabla = "\n".join(lineas)
 
+    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
+
     desc = (
-        f"*{esc(impostor[1])}* era el impostor y no fue descubierto\\!\n"
         f"Votaron incorrectamente por *{esc(eliminado[1])}*"
-        if eliminado and eliminado[0] != impostor[0]
-        else f"*{esc(impostor[1])}* adivinó la palabra correcta\\!"
+        if eliminado and eliminado[0] not in impostor_ids_set
+        else f"*{esc(impostores[0][1] if impostores else '?')}* adivinó la palabra correcta\\!"
     )
 
     await message.reply_text(
-        f"🕵️ *¡El impostor ganó\\!*\n\n"
+        f"🕵️ *¡Los impostores ganaron\\!*\n\n"
+        f"Eran: {nombres_impostores}\n"
         f"{desc}\n\n"
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
@@ -954,7 +977,7 @@ async def _fin_impostor_gana(chat_key, ctx, partida, jugadores, impostor, elimin
         "_Usa /jugarimpostor para otra ronda_",
         parse_mode="MarkdownV2"
     )
-
+    
 async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     jugadores = get_jugadores(chat_key)
@@ -993,24 +1016,31 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     jugadores = datos["jugadores"]
     categoria = datos["categoria"]
     detalle_votos = datos["detalle_votos"]
-    impostor = next((j for j in jugadores if j[0] == user.id), None)
+    impostores = datos["impostores"]
+    impostor_votado = next((j for j in jugadores if j[0] == user.id), None)
 
     ctx.bot_data.pop(f"adivinando_{chat_key}", None)
 
     if texto == palabra.lower():
         await update.message.reply_text(
             f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
-            f"La palabra era *{esc(palabra)}* y la escribió correctamente\\. ¡El impostor gana\\! 🕵️",
+            f"La palabra era *{esc(palabra)}*\\. ¡Los impostores ganan\\! 🕵️",
             parse_mode="MarkdownV2"
         )
-        await _fin_impostor_gana(chat_key, ctx, partida, jugadores, impostor, None, palabra, categoria, detalle_votos, update.message)
+        await _fin_impostores_ganan(
+            chat_key, ctx, partida, jugadores, impostores,
+            None, palabra, categoria, detalle_votos, update.message
+        )
     else:
         await update.message.reply_text(
             f"❌ *{esc(nombre(user))}* escribió *{esc(texto)}*\\.\\.\\. ¡Incorrecto\\!\n\n"
             f"La palabra era *{esc(palabra)}*\\. ¡El grupo gana\\! 🎉",
             parse_mode="MarkdownV2"
         )
-        await _fin_grupo_gana(chat_key, ctx, jugadores, impostor, palabra, categoria, detalle_votos, update.message)
+        await _fin_grupo_gana(
+            chat_key, ctx, jugadores, impostores,
+            palabra, categoria, detalle_votos, update.message
+        )
 
 async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
