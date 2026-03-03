@@ -308,7 +308,7 @@ def generar_pistas(palabra: str, categoria: str) -> str:
         )
         return response.content[0].text.strip()
     except Exception:
-        return "1\\. Piensa en sus características principales\n2\\. Recuerda dónde o cómo se usa"
+        return "1. Piensa en sus características principales\n2. Recuerda dónde o cómo se usa"
 
 
 # ── Base de datos ──────────────────────────────────────────────
@@ -686,7 +686,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
     pistas_raw = generar_pistas(palabra, categoria)
-    pistas = esc(pistas_raw)
+    pistas = "\n".join(esc(linea) for linea in pistas_raw.splitlines())
 
     fallidos = []
     for uid, uname in jugadores:
