@@ -648,6 +648,39 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def btn_abrir_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+
+    partida = get_partida(chat_key)
+    if not partida or partida[2] != "jugando":
+        await query.answer("No hay partida en curso.", show_alert=True)
+        return
+
+    if partida[8] != user.id:
+        await query.answer("⚠️ Solo el creador puede abrir la votación.", show_alert=True)
+        return
+
+    await query.answer()
+
+    vivos_ids = get_vivos(chat_key)
+    jugadores = get_jugadores(chat_key)
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+
+    keyboard = [
+        [InlineKeyboardButton(f"🗳️ {j[1]}", callback_data=f"voto:{j[0]}")]
+        for j in vivos
+    ]
+    ctx.bot_data[f"votos_{chat_key}"] = {}
+
+    await query.message.reply_text(
+        f"🗳️ *¿Quién es el impostor\\?*\n\n"
+        f"_Jugadores vivos \\({len(vivos)}\\) — solo ellos votan:_",
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 
 async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -729,15 +762,17 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             + "\n_Deben iniciar conversación con el bot primero_"
         )
 
-    texto_cat_grupo = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"Categoría: *{esc(categoria)}*"
+    keyboard_votar = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
     await ctx.bot.send_message(
         chat_id,
         f"🎮 *¡La partida comienza\\!*\n\n"
         f"{texto_cat_grupo}\n\n"
         f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
-        f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\."
+        f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
+        f"Cuando todos hayan dado su pista, el creador abre la votación 🗳️"
         + aviso,
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard_votar)
     )
 
     # Mencionar al primer jugador UNA sola vez
@@ -1084,13 +1119,16 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
             parse_mode="MarkdownV2"
         )
 
+    keyboard = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
     await message.reply_text(
         f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
-        f"👥 Jugadores vivos: *{len(vivos)}*\n\n"
+        f"👥 Jugadores vivos: *{len(vivos)}* "
+        f"\\({num_impostores_vivos} impostor\\(es\\) y {num_inocentes_vivos} inocente\\(s\\)\\)\n\n"
         f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra\\.\n"
-        f"Cuando terminen, el creador usa /votar 🗳️",
-        parse_mode="MarkdownV2"
+        f"Cuando terminen, el creador abre la votación 🗳️",
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
     primer_usuario = orden[0]
@@ -1317,6 +1355,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
     app.add_handler(CallbackQueryHandler(btn_categoria,       pattern="^cat:"))
     app.add_handler(CallbackQueryHandler(btn_confirmar_pista, pattern="^confirmar_pista:"))
+    app.add_handler(CallbackQueryHandler(btn_abrir_votar, pattern="^abrir_votar$"))
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
