@@ -25,26 +25,113 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Palabras por categoría ─────────────────────────────────────
-CATEGORIAS = {
     "🐾 Animales": [
-        "León", "Delfín", "Pingüino", "Canguro", "Jirafa",
-        "Pulpo", "Cocodrilo", "Flamenco", "Panda", "Tiburón",
-        "Camello", "Murciélago", "Tortuga", "Lobo", "Oso polar",
+        # Mamíferos salvajes
+        "León", "Tigre", "Leopardo", "Guepardo", "Jaguar",
+        "Elefante", "Jirafa", "Hipopótamo", "Rinoceronte", "Cebra",
+        "Gorila", "Chimpancé", "Orangután", "Koala", "Canguro",
+        "Panda", "Oso polar", "Oso grizzly", "Lobo", "Zorro",
+        "Camello", "Bisonte", "Alce", "Ciervo", "Jabalí",
+
+        # Mamíferos marinos y acuáticos
+        "Delfín", "Ballena", "Orca", "Foca", "Manatí",
+        "Nutria", "Castor", "Hipopótamo",
+
+        # Reptiles y anfibios
+        "Cocodrilo", "Caimán", "Iguana", "Camaleón", "Gecko",
+        "Tortuga", "Serpiente", "Cobra", "Anaconda", "Dragón de Komodo",
+        "Salamandra", "Rana toro",
+
+        # Aves
+        "Flamenco", "Pingüino", "Tucán", "Loro", "Cóndor",
+        "Águila", "Búho", "Pavo real", "Pelícano", "Colibrí",
+        "Avestruz", "Kiwi",
+
+        # Marinos e invertebrados
+        "Tiburón", "Pulpo", "Medusa", "Mantarraya", "Caballito de mar",
+        "Estrella de mar", "Cangrejo", "Langosta", "Pez payaso",
+
+        # Exóticos / curiosos
+        "Murciélago", "Ornitorrinco", "Armadillo", "Pangolín", "Axolote",
+        "Tarántula", "Escorpión", "Mantis religiosa",
     ],
     "⚽ Deportes": [
-        "Fútbol", "Tenis", "Natación", "Boxeo", "Escalada",
-        "Surf", "Golf", "Rugby", "Voleibol", "Esgrima",
-        "Ciclismo", "Patinaje", "Arquería", "Polo", "Judo",
+        # Deportes de equipo
+        "Fútbol", "Baloncesto", "Voleibol", "Rugby", "Hockey sobre hielo",
+        "Béisbol", "Waterpolo", "Handball", "Fútbol americano",
+        "Cricket", "Polo", "Ultimate Frisbee",
+
+        # Deportes de raqueta
+        "Tenis", "Pádel", "Bádminton", "Squash", "Tenis de mesa",
+       
+        # Deportes de combate
+        "Boxeo", "Judo", "Karate", "Taekwondo", "Esgrima",
+        "Lucha libre", "Sumo", "Muay Thai", "Kendo",
+
+        # Deportes acuáticos
+        "Natación", "Surf", "Waterpolo", "Remo", "Kayak",
+        "Vela", "Esquí acuático", "Buceo", "Triatlón", "Natación sincronizada",
+
+        # Deportes de montaña y aventura
+        "Escalada", "Esquí", "Snowboard", "Parapente", "Rappel",
+        "Senderismo", "Ciclismo de montaña",
+
+        # Atletismo y pista
+        "Maratón", "Salto de altura", "Lanzamiento de jabalina", "Decatlón",
+
+        # Otros
+        "Golf", "Arquería", "Ciclismo", "Patinaje artístico", "Gimnasia",
+        "Tiro con arco", "Equitación",
     ],
     "🌍 Lugares del mundo": [
-        "Machu Picchu", "Times Square", "Coliseo", "Sahara",
-        "Amazonas", "Venecia", "Tokio", "Islandia", "Maldivas",
-        "Gran Cañón", "Siberia", "Dubái", "Patagonia", "Bangkok",
+        # Maravillas y monumentos
+        "Machu Picchu", "Coliseo Romano", "Torre Eiffel", "Taj Mahal", "Gran Muralla China",
+        "Stonehenge", "Angkor Wat", "Petra", "Cristo Redentor", "Pirámides de Giza",
+        "Alhambra", "Sagrada Familia", "Big Ben", "Estatua de la Libertad", "Kremlin",
+
+        # Ciudades icónicas
+        "Times Square", "Tokio", "Venecia", "Dubái", "Bangkok",
+        "Estambul", "Río de Janeiro", "Ciudad del Cabo", "Singapur", "Praga",
+        "Buenos Aires", "Marrakech", "Amsterdam", "Nueva Orleans", "Kioto",
+
+        # Naturaleza y geografía
+        "Sahara", "Amazonas", "Patagonia", "Islandia", "Maldivas",
+        "Gran Cañón", "Siberia", "Antártida", "Serengeti", "Fiordos Noruegos",
+        "Gran Barrera de Coral", "Selva Negra", "Desierto de Atacama", "Valle de la Muerte", "Galápagos",
+
+        # Ríos, lagos y mares
+        "Lago Titicaca", "Mar Muerto", "Río Nilo", "Lago Baikal", "Cataratas del Niágara",
+        "Cataratas Victoria", "Mar Mediterráneo", "Río Amazonas", "Mar Caribe",
+
+        # Regiones y países míticos
+        "La Toscana", "Bali", "Santorini", "Cappadocia", "Polinesia Francesa",
+        "Tibet", "Laponia", "Zanzibar", "Maasai Mara", "Borneo",
     ],
     "📦 Objetos cotidianos": [
-        "Paraguas", "Tijeras", "Termómetro", "Candado", "Espejo",
-        "Calculadora", "Maletín", "Percha", "Colador", "Lupa",
-        "Destornillador", "Embudo", "Pinzas", "Brújula", "Reloj", "Cuaderno", "Mesa",
+        # Hogar
+        "Paraguas", "Espejo", "Percha", "Colador", "Embudo",
+        "Tijeras", "Candado", "Lupa", "Brújula", "Termómetro",
+        "Reloj", "Cuaderno", "Mesa", "Silla", "Lámpara",
+        "Almohada", "Manta", "Cortina", "Jabonera", "Tapete",
+        "Florero", "Portarretratos", "Cesto de ropa", "Tabla de planchar", "Escoba",
+
+        # Cocina
+        "Sartén", "Olla", "Cuchillo", "Tenedor", "Cuchara",
+        "Rallador", "Abrebotellas", "Corcho", "Delantal", "Batidora",
+        "Tostadora", "Microondas", "Mortero", "Pinzas de cocina", "Mandolina",
+
+        # Escritorio y oficina
+        "Calculadora", "Maletín", "Destornillador", "Grapadora", "Regla",
+        "Sacapuntas", "Borrador", "Clip", "Carpeta", "Sello",
+        "Archivador", "Pizarrón", "Rotulador", "Compás", "Resaltador",
+
+        # Bolso y personal
+        "Billetera", "Llavero", "Pañuelo", "Paraguas plegable", "Agenda",
+        "Auriculares", "Cargador", "Termo", "Cantimplora", "Linterna",
+
+        # Herramientas
+        "Martillo", "Alicates", "Cinta métrica", "Nivel", "Sierra",
+        "Taladro", "Llave inglesa", "Pincel", "Rodillo", "Escalera",
     ],
     "🎨 Colores": [
         "Turquesa", "Magenta", "Escarlata", "Índigo", "Negro",
@@ -52,9 +139,201 @@ CATEGORIAS = {
         "Amarillo", "Violeta", "Dorado", "Plateado", "Coral", "Azul", "Blanco",
     ],
     "🌐 Países": [
-        "Noruega", "Brasil", "Japón", "Marruecos", "Australia",
-        "Canadá", "Tailandia", "Sudáfrica", "Argentina", "Grecia",
-        "Egipto", "México", "India", "Portugal", "Colombia", "Chile",
+        # Europa
+        "Noruega", "Grecia", "Portugal", "Islandia", "Suecia",
+        "Finlandia", "Dinamarca", "Polonia", "Hungría", "Rumania",
+        "Croacia", "Serbia", "Austria", "Suiza", "Bélgica",
+        "Países Bajos", "Irlanda", "Escocia", "Albania", "Montenegro",
+
+        # América
+        "Brasil", "Argentina", "Colombia", "Chile", "Perú",
+        "México", "Canadá", "Cuba", "Venezuela", "Bolivia",
+        "Ecuador", "Uruguay", "Paraguay", "Costa Rica", "Panamá",
+        "Guatemala", "Honduras", "Jamaica", "República Dominicana", "Haití",
+
+        # Asia
+        "Japón", "Tailandia", "India", "China", "Corea del Sur", "Corea del Norte"
+        "Vietnam", "Indonesia", "Filipinas", "Malasia", "Nepal",
+        "Pakistán", "Bangladés", "Sri Lanka", "Myanmar", "Camboya",
+        "Mongolia", "Kazajistán", "Uzbekistán", "Georgia", "Armenia",
+
+        # África
+        "Marruecos", "Sudáfrica", "Egipto",
+        "Tanzania", "Ghana", "Senegal", "Nigeria", "Túnez",
+        "Argelia", "Mozambique", "Madagascar", "Zimbabue", "Camerún",
+
+        # Medio Oriente y Oceanía
+        "Australia", "Nueva Zelanda",
+        "Israel", "Irán", "Iraq", "Arabia Saudita",
+    ],
+    "🎌 Anime": [
+        # Personajes icónicos
+        "Goku", "Naruto", "Luffy", "Ichigo", "Eren Jaeger",
+        "Levi Ackerman", "Edward Elric", "Spike Spiegel", "Light Yagami", "L Lawliet",
+        "Sailor Moon", "Sakura Kinomoto", "Asuka Langley", "Rei Ayanami", "Mikasa Ackerman",
+        "Killua", "Gon Freecss", "Meruem", "Hisoka", "Kurapika",
+        "Zoro", "Sanji", "Nami", "Nico Robin", "Shanks",
+        "Sasuke", "Itachi", "Kakashi", "Madara", "Hinata",
+        "Tanjiro", "Nezuko", "Zenitsu", "Inosuke", "Muzan",
+        "Deku", "Bakugo", "All Might", "Todoroki", "Endeavor",
+        "Vegeta", "Piccolo", "Gohan", "Frieza", "Cell",
+        "Saitama", "Genos", "Garou", "Bang", "Tatsumaki",
+
+        # Series / títulos
+        "Dragon Ball", "Naruto", "One Piece", "Bleach", "Attack on Titan",
+        "Fullmetal Alchemist", "Death Note", "Hunter x Hunter", "Demon Slayer", "My Hero Academia",
+        "Neon Genesis Evangelion", "Cowboy Bebop", "Sword Art Online", "Tokyo Ghoul", "Fairy Tail",
+        "One Punch Man", "Jujutsu Kaisen", "Chainsaw Man", "Spy x Family", "Re:Zero",
+        "Steins;Gate", "Code Geass", "No Game No Life", "Overlord", "Black Clover",
+        "Vinland Saga", "Mob Psycho 100", "Violet Evergarden", "Your Lie in April", "Clannad",
+
+        # Estudios y conceptos
+        "Studio Ghibli", "Shonen Jump", "Isekai", "Tsundere", "Shōnen",
+        "Seinen", "Mecha", "Openning", "Filler", "Mangaka",
+    ],
+    "⚽ Futbolistas": [
+        # Leyendas históricas
+        "Pelé", "Diego Maradona", "Johan Cruyff", "Franz Beckenbauer", "Ronaldo Nazário",
+        "Zinedine Zidane", "Ronaldinho", "Roberto Carlos", "Cafu", "Paolo Maldini",
+        "Franco Baresi", "Marco van Basten", "Ruud Gullit", "George Best", "Bobby Charlton",
+        "Michel Platini", "Eusébio", "Garrincha", "Lev Yashin", "Ferenc Puskás",
+
+        # Generación 2000-2010
+        "Thierry Henry", "Andrés Iniesta", "Xavi Hernández", "Steven Gerrard", "Frank Lampard",
+        "Wayne Rooney", "Fernando Torres", "David Villa", "Kaká", "Samuel Eto'o",
+        "Didier Drogba", "Gianluigi Buffon", "Carles Puyol", "John Terry", "Ashley Cole",
+
+        # Era moderna
+        "Lionel Messi", "Cristiano Ronaldo", "Neymar", "Luka Modric", "Sergio Ramos",
+        "Luis Suárez", "Zlatan Ibrahimović", "Arjen Robben", "Franck Ribéry", "Iker Casillas",
+        "Manuel Neuer", "Sergio Busquets", "David Silva", "Cesc Fàbregas", "Mesut Özil",
+
+        # Actuales
+        "Kylian Mbappé", "Erling Haaland", "Vinicius Jr", "Pedri", "Gavi",
+        "Rodri", "Jude Bellingham", "Phil Foden", "Bukayo Saka", "Jamal Musiala",
+        "Federico Valverde", "Rafael Leão", "Victor Osimhen", "Mohamed Salah", "Sadio Mané",
+        "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
+    ],
+    "🎤 K-Pop": [
+        # Grupos de chicos (4ta generación)
+        "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
+        "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
+        "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
+
+        # Grupos de chicos (3ra generación)
+        "BTS", "EXO", "GOT7", "SEVENTEEN", "NCT 127",
+        "SHINee", "BIGBANG", "2PM", "INFINITE", "VIXX",
+        "WINNER", "iKON", "ASTRO", "DAY6", "HIGHLIGHT",
+
+        # Grupos de chicas (4ta generación)
+        "BLACKPINK", "TWICE", "aespa", "IVE", "NewJeans",
+        "ITZY", "NMIXX", "LE SSERAFIM", "MAMAMOO", "Red Velvet",
+        "Kep1er", "STAYC", "EVERGLOW", "WEEEKLY", "tripleS", "BABYMONSTER",
+
+        # Grupos de chicas (3ra generación)
+        "Girls Generation", "f(x)", "2NE1", "Wonder Girls", "T-ARA",
+        "SISTAR", "4MINUTE", "AOA", "APINK", "EXID",
+
+        # Soloistas masculinos
+        "G-Dragon", "Taeyang", "Daesung", "Seungri", "T.O.P",
+        "PSY", "Rain", "Se7en", "Zico", "Jay Park",
+        "Dean", "Crush", "Dynamic Duo", "Epik High", "Loco",
+
+        # BTS (todos)
+        "RM", "Jin", "Suga", "J-Hope", "Jimin",
+        "V", "Jungkook",
+
+        # EXO (más populares)
+        "Baekhyun", "Chanyeol", "D.O", "Kai", "Sehun",
+        "Suho", "Xiumin", "Chen", "Lay",
+
+        # SEVENTEEN (más populares)
+        "Woozi", "Mingyu", "Vernon", "Hoshi", "Jeonghan",
+        "S.Coups", "The8", "Dino",
+
+        # Stray Kids (todos)
+        "Bang Chan", "Lee Know", "Changbin", "Hyunjin", "Han",
+        "Felix", "Seungmin", "I.N",
+
+        # ATEEZ (todos)
+        "Hongjoong", "Seonghwa", "Yunho", "Yeosang", "San",
+        "Mingi", "Wooyoung", "Jongho",
+
+        # SHINee (todos)
+        "Onew", "Key", "Minho", "Taemin",
+
+        # Soloistas femeninas
+        "IU", "Sunmi", "HyunA", "Chungha", "Heize",
+        "Jessi", "Somi", "Gain", "BoA", "CL",
+
+        # BLACKPINK (todas)
+        "Jennie", "Lisa", "Rosé", "Jisoo",
+
+        # TWICE (todas)
+        "Nayeon", "Jeongyeon", "Momo", "Sana", "Jihyo",
+        "Mina", "Dahyun", "Chaeyoung", "Tzuyu",
+
+        # aespa (todas)
+        "Karina", "Giselle", "Winter", "Ningning",
+
+        # IVE (todas)
+        "Yujin", "Gaeul", "Rei", "Wonyoung", "Liz", "Leeseo",
+
+        # NewJeans (todas)
+        "Minji", "Hanni", "Danielle", "Haerin", "Hyein",
+
+        # Red Velvet (todas)
+        "Irene", "Seulgi", "Wendy", "Joy", "Yeri",
+
+        # ITZY (todas)
+        "Yeji", "Lia", "Ryujin", "Chaeryeong", "Yuna",
+
+        # LE SSERAFIM (todas)
+        "Sakura", "Chaewon", "Yunjin", "Kazuha", "Eunchae",
+
+        # Girls Generation (todas)
+        "Taeyeon", "Tiffany", "Yoona", "Yuri", "Sooyoung",
+        "Hyoyeon", "Sunny", "Seohyun",
+
+        # MAMAMOO (todas)
+        "Solar", "Moonbyul", "Wheein", "Hwasa",
+
+        # NMIXX (todas)
+        "Lily", "Haewon", "Sullyoon", "Jinni", "Bae",
+        "Jiwoo", "Kyujin",
+
+        # STAYC (todas)
+        "Sumin", "Sieun", "ISA", "Seeun", "Yoon", "J",
+
+        # Kep1er (todas)
+        "Yujin", "Mashiro", "Chaehyun", "Hikaru", "Huening Bahiyyih",
+        "Dayeon", "Xiaoting", "Yeseo", "Youngeun",
+
+        # EVERGLOW (todas)
+        "Aisha", "Sihyeon", "Mia", "Onda", "E:U", "Yiren",
+
+        # (G)I-DLE (todas)
+        "Miyeon", "Minnie", "Soojin", "Soyeon", "Yuqi", "Shuhua",
+
+        # EXID (todas)
+        "Solji", "LE", "Hani", "Hyelin", "Jeonghwa",
+
+        # APINK (todas)
+        "Chorong", "Bomi", "Eunji", "Namjoo", "Hayoung",
+
+        # tripleS (más populares)
+        "Kotone", "Seoyeon", "Hyerin", "Jiwoo", "Chaeyeon",
+        "Soomin", "Nara", "Dahyun",
+
+        # WEEEKLY (todas)
+        "Jihan", "Monday", "Soeun", "Jaehee", "Zoa", "Heeyeon", "Dayeon",
+        
+        # BABYMONSTER (todas)
+        "Ruka", "Pharita", "Asa", "Rami", "Ahyeon",
+        "Rora", "Chiquita",
+
+        # VIVIZ (todas)
+        "SinB", "Eunha", "Umji",
     ],
 }
 
