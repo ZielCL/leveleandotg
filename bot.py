@@ -565,9 +565,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• Den pistas sin decirla directamente 🎭\n"
         "• El grupo vota quién es el impostor\n\n"
         "*Comandos:*\n"
-        "`/nueva` — Crear una partida\n"
+        "`/jugarimpostor` — Crear una partida\n"
         "`/unirse` — Unirse a la partida\n"
-        "`/jugarimpostor` — Empezar \\(mín\\. 3 jugadores\\)\n"
+        "`/iniciar` — Empezar \\(mín\\. 3 jugadores\\)\n"
         "`/votar` — Abrir votación final\n"
         "`/puntaje` — Ver marcador\n"
         "`/cancelar` — Cancelar partida",
@@ -613,7 +613,7 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def _unirse(chat_id, user, reply_fn):
     partida = get_partida(chat_id)
     if not partida or partida[1] != "esperando":
-        await reply_fn("⚠️ No hay ninguna partida abierta. Usa /nueva para crear una.")
+        await reply_fn("⚠️ No hay ninguna partida abierta. Usa /jugarimpostor para crear una.")
         return
 
     upsert_jugador(chat_id, user.id, nombre(user))
@@ -669,7 +669,7 @@ async def cmd_iniciar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     partida = get_partida(chat_id)
 
     if not partida or partida[1] != "esperando":
-        await update.message.reply_text("⚠️ No hay partida en espera. Usa /nueva.")
+        await update.message.reply_text("⚠️ No hay partida en espera. Usa /jugarimpostor.")
         return
     if partida[6] != user.id:
         await update.message.reply_text("⚠️ Solo el creador puede iniciar la partida.")
@@ -912,7 +912,7 @@ async def _fin_grupo_gana(chat_id, ctx, jugadores, impostor, palabra, categoria,
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
         f"*🏆 Puntaje:*\n{puntaje}\n\n"
-        "_Usa /nueva para jugar otra ronda_",
+        "_Usa /jugarimpostor para jugar otra ronda_",
         parse_mode="MarkdownV2"
     )
 
@@ -955,7 +955,7 @@ async def _fin_impostor_gana(chat_id, ctx, partida, jugadores, impostor, elimina
         f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
         f"*Votos:*\n{detalle_votos}\n\n"
         f"*🏆 Puntaje:*\n{puntaje}\n\n"
-        "_Usa /nueva para jugar otra ronda_",
+        "_Usa /jugarimpostor para jugar otra ronda_",
         parse_mode="MarkdownV2"
     )
 
@@ -1031,7 +1031,7 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_id=?", (chat_id,))
-    await update.message.reply_text("❌ Partida cancelada\\. Usa /nueva para empezar otra\\.", parse_mode="MarkdownV2")
+    await update.message.reply_text("❌ Partida cancelada\\. Usa /jugarimpostor para empezar otra\\.", parse_mode="MarkdownV2")
 
 async def error_handler(update, ctx):
     error = ctx.error
@@ -1048,9 +1048,9 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("nueva",    cmd_nueva))
+    app.add_handler(CommandHandler("jugarimpostor", cmd_nueva))
     app.add_handler(CommandHandler("unirse",   cmd_unirse))
-    app.add_handler(CommandHandler("jugarimpostor", cmd_iniciar))
+    app.add_handler(CommandHandler("iniciar", cmd_iniciar))
     app.add_handler(CommandHandler("votar",    cmd_votar))
     app.add_handler(CommandHandler("puntaje",  cmd_puntaje))
     app.add_handler(CommandHandler("cancelar", cmd_cancelar))
