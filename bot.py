@@ -336,6 +336,12 @@ def init_db():
             derrotas    INTEGER DEFAULT 0,
             UNIQUE(chat_key, user_id)
         );
+        CREATE TABLE IF NOT EXISTS partida_jugadores (
+            chat_key    TEXT,
+            user_id     INTEGER,
+            username    TEXT,
+            PRIMARY KEY (chat_key, user_id)
+        );
         CREATE TABLE IF NOT EXISTS historial (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             chat_key    TEXT,
@@ -378,6 +384,25 @@ def upsert_jugador(chat_key, user_id, username):
             "UPDATE jugadores SET username=? WHERE chat_key=? AND user_id=?",
             (username, chat_key, user_id)
         )
+
+def get_jugadores_activos(chat_key):
+    """Jugadores de la partida actual (para el juego)"""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT user_id, username FROM partida_jugadores WHERE chat_key=?",
+            (chat_key,)
+        ).fetchall()
+
+def agregar_jugador_activo(chat_key, user_id, username):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO partida_jugadores (chat_key, user_id, username) VALUES (?,?,?)",
+            (chat_key, user_id, username)
+        )
+
+def limpiar_jugadores_activos(chat_key):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM partida_jugadores WHERE chat_key=?", (chat_key,))
 
 def sumar_victoria(chat_key, user_id):
     with get_conn() as conn:
@@ -531,13 +556,16 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Ya hay una partida activa. Usa /cancelar primero.")
         return
 
+    limpiar_jugadores_activos(chat_key)  # ← limpiar sin borrar estadísticas
+
     with get_conn() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO partidas (chat_key, chat_id, estado, creador_id, ronda) VALUES (?,?,?,?,1)",
             (chat_key, chat_id, "esperando", user.id)
         )
 
-    upsert_jugador(chat_key, user.id, nombre(user))
+    upsert_jugador(chat_key, user.id, nombre(user))         # estadísticas
+    agregar_jugador_activo(chat_key, user.id, nombre(user)) # partida activa
 
     keyboard = [[InlineKeyboardButton("✋ Unirse a la partida", callback_data="unirse")]]
     await update.message.reply_text(
@@ -558,22 +586,34 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def _unirse(chat_key, user, reply_fn):
     partida = get_partida(chat_key)
-    if not partida or partida[2] != "esperando":
+    if not partida:
         await reply_fn("⚠️ No hay ninguna partida abierta. Usa /jugarimpostor para crear una.")
         return
 
-    upsert_jugador(chat_key, user.id, nombre(user))
-    jugadores = get_jugadores(chat_key)
-    lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(jugadores))
+    if partida[2] != "esperando":
+        await reply_fn("⚠️ La partida ya está en curso, no puedes unirte ahora.")
+        return
+
+    activos = get_jugadores_activos(chat_key)
+    ids_activos = [j[0] for j in activos]
+    if user.id in ids_activos:
+        await reply_fn("⚠️ Ya estás en la partida.")
+        return
+
+    upsert_jugador(chat_key, user.id, nombre(user))         # estadísticas
+    agregar_jugador_activo(chat_key, user.id, nombre(user)) # partida activa
+
+    activos = get_jugadores_activos(chat_key)
+    lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(activos))
 
     keyboard = []
-    if len(jugadores) >= 3:
+    if len(activos) >= 3:
         keyboard = [[InlineKeyboardButton("🚀 ¡Iniciar partida!", callback_data="iniciar_partida")]]
 
     await reply_fn(
         f"✅ *{esc(nombre(user))} se unió\\!*\n\n"
-        f"*Jugadores* \\({len(jugadores)}\\):\n{lista}\n\n"
-        + ("_El creador puede iniciar cuando quiera\\._" if len(jugadores) >= 3 else f"_Faltan {3 - len(jugadores)} jugadores más para poder iniciar\\._"),
+        f"*Jugadores* \\({len(activos)}\\):\n{lista}\n\n"
+        + ("_El creador puede iniciar cuando quiera\\._" if len(activos) >= 3 else f"_Faltan {3 - len(activos)} jugadores más para poder iniciar\\._"),
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
@@ -592,7 +632,7 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⚠️ Solo el creador puede iniciar la partida.", show_alert=True)
         return
 
-    jugadores = get_jugadores(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
     if len(jugadores) < 3:
         await query.answer(f"⚠️ Necesitas al menos 3 jugadores. Ahora hay {len(jugadores)}.", show_alert=True)
         return
@@ -626,7 +666,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         categoria = random.choice(list(CATEGORIAS.keys()))
 
     palabra = random.choice(CATEGORIAS[categoria])
-    jugadores = get_jugadores(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
     num_impostores = calcular_num_impostores(len(jugadores))
     impostores = random.sample(jugadores, num_impostores)
     impostor_ids = ",".join(str(i[0]) for i in impostores)
@@ -649,7 +689,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pistas = esc(pistas_raw)
 
     fallidos = []
-    for uid, uname, _, _ in jugadores:
+    for uid, uname in jugadores:  # ← antes era (uid, uname, _, _)
         try:
             if uid in impostor_ids_set:
                 msg = (
@@ -673,6 +713,21 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     random.shuffle(orden)
     turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
 
+        orden_ids = [j[0] for j in orden]
+    ctx.bot_data[f"turno_{chat_key}"] = {
+        "orden": orden_ids,
+        "index": 0,
+        "ya_dieron_pista": set()
+    }
+
+    primer_usuario = orden[0]
+    await ctx.bot.send_message(
+        chat_id,
+        f"👆 *¡Es el turno de* [{esc(primer_usuario[1])}](tg://user?id={primer_usuario[0]})\\!\n"
+        f"Escribe tu pista en el chat\\. Cuando la hayas escrito, confirma con el botón\\.",
+        parse_mode="MarkdownV2"
+    )
+
     aviso = ""
     if fallidos:
         aviso = (
@@ -693,6 +748,57 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2"
     )
 
+async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    chat_key = get_chat_key(update)
+    user = query.from_user
+
+    turno_data = ctx.bot_data.get(f"turno_{chat_key}")
+    if not turno_data:
+        await query.answer("No hay turno activo.", show_alert=True)
+        return
+
+    orden = turno_data["orden"]
+    index = turno_data["index"]
+
+    # Verificar que sea el turno de este usuario
+    if user.id != orden[index]:
+        await query.answer("⚠️ No es tu turno.", show_alert=True)
+        return
+
+    await query.answer("✅ ¡Pista confirmada!")
+    await query.message.delete()
+
+    turno_data["ya_dieron_pista"].add(user.id)
+    siguiente_index = index + 1
+    turno_data["index"] = siguiente_index
+
+    # ¿Ya dieron pista todos?
+    if siguiente_index >= len(orden):
+        ctx.bot_data.pop(f"turno_{chat_key}", None)
+        await ctx.bot.send_message(
+            query.message.chat.id,
+            "✅ *¡Todos dieron su pista\\!*\n\n"
+            "El creador puede abrir la votación con /votar 🗳️",
+            parse_mode="MarkdownV2"
+        )
+        return
+
+    # Mencionar al siguiente
+    siguiente_id = orden[siguiente_index]
+    partida = get_partida(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
+    nombre_siguiente = next((j[1] for j in jugadores if j[0] == siguiente_id), "?")
+
+    await ctx.bot.send_message(
+        query.message.chat.id,
+        f"👆 *¡Es el turno de* [{esc(nombre_siguiente)}](tg://user?id={siguiente_id})\\!\n"
+        f"Escribe tu pista en el chat y confirma con el botón\\.",
+        parse_mode="MarkdownV2"
+    )
+
+
+
 
 async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
@@ -703,11 +809,17 @@ async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ No hay partida en curso.")
         return
 
+    # Verificar que sea el creador
     if partida[8] != user.id:
         await update.message.reply_text("⚠️ Solo el creador puede abrir la votación.")
         return
 
+    # Verificar que el creador siga vivo
     vivos_ids = get_vivos(chat_key)
+    if user.id not in vivos_ids:
+        await update.message.reply_text("⚠️ Fuiste eliminado, no puedes abrir la votación.")
+        return
+
     jugadores = get_jugadores(chat_key)
     vivos = [j for j in jugadores if j[0] in vivos_ids]
 
@@ -967,6 +1079,13 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     random.shuffle(orden)
     turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
 
+    # Resetear turno
+    orden_ids = [j[0] for j in orden]
+    ctx.bot_data[f"turno_{chat_key}"] = {
+        "orden": orden_ids,
+        "index": 0,
+        "ya_dieron_pista": set()
+    }
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
@@ -980,70 +1099,95 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
         parse_mode="MarkdownV2"
     )
 
+    # Mencionar al primero
+    primer_usuario = orden[0]
+    await message.reply_text(
+        f"👆 *¡Es el turno de* [{esc(primer_usuario[1])}](tg://user?id={primer_usuario[0]})\\!\n"
+        f"Escribe tu pista en el chat y confirma con el botón\\.",
+        parse_mode="MarkdownV2"
+    )
+
 
 async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
-    texto = update.message.text.strip().lower()
-
-    datos = ctx.bot_data.get(f"adivinando_{chat_key}")
-    if not datos:
-        return
+    texto = update.message.text.strip()
 
     partida = get_partida(chat_key)
-    if not partida or partida[2] != "adivinando":
+    if not partida:
         return
 
-    if user.id != datos["impostor_id"]:
-        return
-
-    palabra = datos["palabra"]
-    jugadores = datos["jugadores"]
-    categoria = datos["categoria"]
-    detalle_votos = datos["detalle_votos"]
-    impostores = datos["impostores"]
-    vivos_restantes_ids = datos["vivos_restantes_ids"]
-    impostores_vivos = datos["impostores_vivos"]
-    inocentes_vivos_ids = datos["inocentes_vivos_ids"]
-    impostor_ids_set = datos["impostor_ids_set"]
-
-    ctx.bot_data.pop(f"adivinando_{chat_key}", None)
-
-    if texto == palabra.lower():
-        # ✅ Adivinó → todos los impostores ganan
-        await update.message.reply_text(
-            f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
-            f"La palabra era *{esc(palabra)}*\\. ¡Los impostores ganan\\! 🕵️",
-            parse_mode="MarkdownV2"
-        )
-        await _fin_impostores_ganan(
-            chat_key, ctx, partida, jugadores, impostores,
-            None, palabra, categoria, detalle_votos, update.message
-        )
-    else:
-        # ❌ Falló → ese impostor queda eliminado definitivamente
-        await update.message.reply_text(
-            f"❌ *{esc(nombre(user))}* escribió *{esc(texto)}*\\.\\.\\. ¡Incorrecto\\!\n\n"
-            f"*{esc(nombre(user))}* queda eliminado definitivamente\\.",
-            parse_mode="MarkdownV2"
-        )
-
-        # ¿Quedan más impostores vivos?
-        if not impostores_vivos:
-            await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, update.message)
+    # ── Modo adivinanza del impostor ──
+    if partida[2] == "adivinando":
+        datos = ctx.bot_data.get(f"adivinando_{chat_key}")
+        if not datos or user.id != datos["impostor_id"]:
             return
 
-        # Victoria automática por supervivencia
-        if len(vivos_restantes_ids) <= 2:
+        palabra = datos["palabra"]
+        jugadores = datos["jugadores"]
+        categoria = datos["categoria"]
+        detalle_votos = datos["detalle_votos"]
+        impostores = datos["impostores"]
+        vivos_restantes_ids = datos["vivos_restantes_ids"]
+        impostores_vivos = datos["impostores_vivos"]
+        inocentes_vivos_ids = datos["inocentes_vivos_ids"]
+        impostor_ids_set = datos["impostor_ids_set"]
+
+        ctx.bot_data.pop(f"adivinando_{chat_key}", None)
+
+        if texto.strip().lower() == palabra.lower():
+            await update.message.reply_text(
+                f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
+                f"La palabra era *{esc(palabra)}*\\. ¡Los impostores ganan\\! 🕵️",
+                parse_mode="MarkdownV2"
+            )
             await _fin_impostores_ganan(
                 chat_key, ctx, partida, jugadores, impostores,
-                None, palabra, categoria, detalle_votos, update.message, razon="supervivencia"
+                None, palabra, categoria, detalle_votos, update.message
             )
-            return
+        else:
+            await update.message.reply_text(
+                f"❌ *{esc(nombre(user))}* escribió *{esc(texto.lower())}*\\.\\.\\. ¡Incorrecto\\!\n\n"
+                f"*{esc(nombre(user))}* queda eliminado definitivamente\\.",
+                parse_mode="MarkdownV2"
+            )
+            if not impostores_vivos:
+                await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, update.message)
+                return
+            if len(vivos_restantes_ids) <= 2:
+                await _fin_impostores_ganan(
+                    chat_key, ctx, partida, jugadores, impostores,
+                    None, palabra, categoria, detalle_votos, update.message, razon="supervivencia"
+                )
+                return
+            await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, update.message)
+        return
 
-        # Continuar con nueva ronda
-        await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, update.message)
+    # ── Modo pistas: detectar si es el turno de este usuario ──
+    if partida[2] != "jugando":
+        return
 
+    turno_data = ctx.bot_data.get(f"turno_{chat_key}")
+    if not turno_data:
+        return
+
+    orden = turno_data["orden"]
+    index = turno_data["index"]
+
+    # Solo responder si es el turno de este usuario
+    if index >= len(orden) or user.id != orden[index]:
+        return
+
+    # Mostrar botón de confirmación
+    keyboard = [[InlineKeyboardButton(
+        "✅ Confirmar esta como mi pista",
+        callback_data=f"confirmar_pista:{user.id}"
+    )]]
+    await update.message.reply_text(
+        f"¿Confirmas *{esc(texto)}* como tu pista\\?",
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
     impostor_ids_set = set(j[0] for j in impostores)
@@ -1119,7 +1263,10 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     jugadores = get_jugadores(chat_key)
 
     if not jugadores:
-        await update.message.reply_text("📊 No hay estadísticas aún\\. ¡Juega primero\\!", parse_mode="MarkdownV2")
+        await update.message.reply_text(
+            "📊 No hay estadísticas aún\\. ¡Juega primero\\!",
+            parse_mode="MarkdownV2"
+        )
         return
 
     lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores]
@@ -1133,9 +1280,23 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
+    user = update.effective_user
+    partida = get_partida(chat_key)
+
+    if not partida or partida[2] == "terminada":
+        await update.message.reply_text("⚠️ No hay ninguna partida activa.")
+        return
+
+    if partida[8] != user.id:
+        await update.message.reply_text("⚠️ Solo el creador puede cancelar la partida.")
+        return
+
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
-    await update.message.reply_text("❌ Partida cancelada\\. Usa /jugarimpostor para empezar otra\\.", parse_mode="MarkdownV2")
+    await update.message.reply_text(
+        "❌ Partida cancelada\\. Usa /jugarimpostor para empezar otra\\.",
+        parse_mode="MarkdownV2"
+    )
 
 
 async def error_handler(update, ctx):
@@ -1163,6 +1324,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
     app.add_handler(CallbackQueryHandler(btn_categoria,       pattern="^cat:"))
+    app.add_handler(CallbackQueryHandler(btn_confirmar_pista, pattern="^confirmar_pista:"))
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto, pattern="^revoto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
