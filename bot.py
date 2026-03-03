@@ -235,6 +235,7 @@ async def cmd_iniciar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
         for cat in CATEGORIAS
     ]
+    keyboard.append([InlineKeyboardButton("🎲 ¡Sorpréndeme! (Random)", callback_data="cat:RANDOM")])
     await update.message.reply_text(
         "🗂️ *Elige una categoría:*",
         parse_mode="MarkdownV2",
@@ -254,6 +255,8 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     categoria = query.data.split(":", 1)[1]
+        if categoria == "RANDOM":
+        categoria = random.choice(list(CATEGORIAS.keys()))
     palabra = random.choice(CATEGORIAS[categoria])
     jugadores = get_jugadores(chat_id)
     impostor = random.choice(jugadores)
@@ -305,10 +308,12 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden)
     )
 
+texto_cat_grupo = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"Categoría: *{esc(categoria)}*"
+
     await ctx.bot.send_message(
         chat_id,
         f"🎮 *¡La partida comienza\\!*\n\n"
-        f"Categoría: *{esc(categoria)}*\n\n"
+        f"{texto_cat_grupo}\n\n"
         f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
         f"Cuando todos hayan dado su pista, usen /votar 🗳️"
