@@ -28,110 +28,68 @@ logger = logging.getLogger(__name__)
 # ── Palabras por categoría ─────────────────────────────────────
 CATEGORIAS = {
     "🐾 Animales": [
-        # Mamíferos salvajes
         "León", "Tigre", "Leopardo", "Guepardo", "Jaguar",
         "Elefante", "Jirafa", "Hipopótamo", "Rinoceronte", "Cebra",
         "Gorila", "Chimpancé", "Orangután", "Koala", "Canguro",
         "Panda", "Oso polar", "Oso grizzly", "Lobo", "Zorro",
         "Camello", "Bisonte", "Alce", "Ciervo", "Jabalí",
-
-        # Mamíferos marinos y acuáticos
         "Delfín", "Ballena", "Orca", "Foca", "Manatí",
-        "Nutria", "Castor", "Hipopótamo",
-
-        # Reptiles y anfibios
+        "Nutria", "Castor",
         "Cocodrilo", "Caimán", "Iguana", "Camaleón", "Gecko",
         "Tortuga", "Serpiente", "Cobra", "Anaconda", "Dragón de Komodo",
         "Salamandra", "Rana toro",
-
-        # Aves
         "Flamenco", "Pingüino", "Tucán", "Loro", "Cóndor",
         "Águila", "Búho", "Pavo real", "Pelícano", "Colibrí",
         "Avestruz", "Kiwi",
-
-        # Marinos e invertebrados
         "Tiburón", "Pulpo", "Medusa", "Mantarraya", "Caballito de mar",
         "Estrella de mar", "Cangrejo", "Langosta", "Pez payaso",
-
-        # Exóticos / curiosos
         "Murciélago", "Ornitorrinco", "Armadillo", "Pangolín", "Axolote",
         "Tarántula", "Escorpión", "Mantis religiosa",
     ],
     "⚽ Deportes": [
-        # Deportes de equipo
         "Fútbol", "Baloncesto", "Voleibol", "Rugby", "Hockey sobre hielo",
         "Béisbol", "Waterpolo", "Handball", "Fútbol americano",
         "Cricket", "Polo", "Ultimate Frisbee",
-
-        # Deportes de raqueta
         "Tenis", "Pádel", "Bádminton", "Squash", "Tenis de mesa",
-       
-        # Deportes de combate
         "Boxeo", "Judo", "Karate", "Taekwondo", "Esgrima",
         "Lucha libre", "Sumo", "Muay Thai", "Kendo",
-
-        # Deportes acuáticos
-        "Natación", "Surf", "Waterpolo", "Remo", "Kayak",
+        "Natación", "Surf", "Remo", "Kayak",
         "Vela", "Esquí acuático", "Buceo", "Triatlón", "Natación sincronizada",
-
-        # Deportes de montaña y aventura
         "Escalada", "Esquí", "Snowboard", "Parapente", "Rappel",
         "Senderismo", "Ciclismo de montaña",
-
-        # Atletismo y pista
         "Maratón", "Salto de altura", "Lanzamiento de jabalina", "Decatlón",
-
-        # Otros
         "Golf", "Arquería", "Ciclismo", "Patinaje artístico", "Gimnasia",
         "Tiro con arco", "Equitación",
     ],
     "🌍 Lugares del mundo": [
-        # Maravillas y monumentos
         "Machu Picchu", "Coliseo Romano", "Torre Eiffel", "Taj Mahal", "Gran Muralla China",
         "Stonehenge", "Angkor Wat", "Petra", "Cristo Redentor", "Pirámides de Giza",
         "Alhambra", "Sagrada Familia", "Big Ben", "Estatua de la Libertad", "Kremlin",
-
-        # Ciudades icónicas
         "Times Square", "Tokio", "Venecia", "Dubái", "Bangkok",
         "Estambul", "Río de Janeiro", "Ciudad del Cabo", "Singapur", "Praga",
         "Buenos Aires", "Marrakech", "Amsterdam", "Nueva Orleans", "Kioto",
-
-        # Naturaleza y geografía
         "Sahara", "Amazonas", "Patagonia", "Islandia", "Maldivas",
         "Gran Cañón", "Siberia", "Antártida", "Serengeti", "Fiordos Noruegos",
         "Gran Barrera de Coral", "Selva Negra", "Desierto de Atacama", "Valle de la Muerte", "Galápagos",
-
-        # Ríos, lagos y mares
         "Lago Titicaca", "Mar Muerto", "Río Nilo", "Lago Baikal", "Cataratas del Niágara",
         "Cataratas Victoria", "Mar Mediterráneo", "Río Amazonas", "Mar Caribe",
-
-        # Regiones y países míticos
         "La Toscana", "Bali", "Santorini", "Cappadocia", "Polinesia Francesa",
         "Tibet", "Laponia", "Zanzibar", "Maasai Mara", "Borneo",
     ],
     "📦 Objetos cotidianos": [
-        # Hogar
         "Paraguas", "Espejo", "Percha", "Colador", "Embudo",
         "Tijeras", "Candado", "Lupa", "Brújula", "Termómetro",
         "Reloj", "Cuaderno", "Mesa", "Silla", "Lámpara",
         "Almohada", "Manta", "Cortina", "Jabonera", "Tapete",
         "Florero", "Portarretratos", "Cesto de ropa", "Tabla de planchar", "Escoba",
-
-        # Cocina
         "Sartén", "Olla", "Cuchillo", "Tenedor", "Cuchara",
         "Rallador", "Abrebotellas", "Corcho", "Delantal", "Batidora",
         "Tostadora", "Microondas", "Mortero", "Pinzas de cocina", "Mandolina",
-
-        # Escritorio y oficina
         "Calculadora", "Maletín", "Destornillador", "Grapadora", "Regla",
         "Sacapuntas", "Borrador", "Clip", "Carpeta", "Sello",
         "Archivador", "Pizarrón", "Rotulador", "Compás", "Resaltador",
-
-        # Bolso y personal
-        "Billetera", "Llavero", "Pañuelo", "Paraguas plegable", "Agenda",
+        "Billetera", "Llavero", "Pañuelo", "Agenda",
         "Auriculares", "Cargador", "Termo", "Cantimplora", "Linterna",
-
-        # Herramientas
         "Martillo", "Alicates", "Cinta métrica", "Nivel", "Sierra",
         "Taladro", "Llave inglesa", "Pincel", "Rodillo", "Escalera",
     ],
@@ -141,35 +99,25 @@ CATEGORIAS = {
         "Amarillo", "Violeta", "Dorado", "Plateado", "Coral", "Azul", "Blanco",
     ],
     "🌐 Países": [
-        # Europa
         "Noruega", "Grecia", "Portugal", "Islandia", "Suecia",
         "Finlandia", "Dinamarca", "Polonia", "Hungría", "Rumania",
         "Croacia", "Serbia", "Austria", "Suiza", "Bélgica",
         "Países Bajos", "Irlanda", "Escocia", "Albania", "Montenegro",
-
-        # América
         "Brasil", "Argentina", "Colombia", "Chile", "Perú",
         "México", "Canadá", "Cuba", "Venezuela", "Bolivia",
         "Ecuador", "Uruguay", "Paraguay", "Costa Rica", "Panamá",
         "Guatemala", "Honduras", "Jamaica", "República Dominicana", "Haití",
-
-        # Asia
-        "Japón", "Tailandia", "India", "China", "Corea del Sur", "Corea del Norte"
+        "Japón", "Tailandia", "India", "China", "Corea del Sur", "Corea del Norte",
         "Vietnam", "Indonesia", "Filipinas", "Malasia", "Nepal",
         "Pakistán", "Bangladés", "Sri Lanka", "Myanmar", "Camboya",
         "Mongolia", "Kazajistán", "Uzbekistán", "Georgia", "Armenia",
-
-        # África
         "Marruecos", "Sudáfrica", "Egipto",
         "Tanzania", "Ghana", "Senegal", "Nigeria", "Túnez",
         "Argelia", "Mozambique", "Madagascar", "Zimbabue", "Camerún",
-
-        # Medio Oriente y Oceanía
         "Australia", "Nueva Zelanda",
         "Israel", "Irán", "Iraq", "Arabia Saudita",
     ],
     "🎌 Anime": [
-        # Personajes icónicos
         "Goku", "Naruto", "Luffy", "Ichigo", "Eren Jaeger",
         "Levi Ackerman", "Edward Elric", "Spike Spiegel", "Light Yagami", "L Lawliet",
         "Sailor Moon", "Sakura Kinomoto", "Asuka Langley", "Rei Ayanami", "Mikasa Ackerman",
@@ -180,270 +128,161 @@ CATEGORIAS = {
         "Deku", "Bakugo", "All Might", "Todoroki", "Endeavor",
         "Vegeta", "Piccolo", "Gohan", "Frieza", "Cell",
         "Saitama", "Genos", "Garou", "Bang", "Tatsumaki",
-
-        # Series / títulos
         "Dragon Ball", "Naruto", "One Piece", "Bleach", "Attack on Titan",
         "Fullmetal Alchemist", "Death Note", "Hunter x Hunter", "Demon Slayer", "My Hero Academia",
         "Neon Genesis Evangelion", "Cowboy Bebop", "Sword Art Online", "Tokyo Ghoul", "Fairy Tail",
         "One Punch Man", "Jujutsu Kaisen", "Chainsaw Man", "Spy x Family", "Re:Zero",
         "Steins;Gate", "Code Geass", "No Game No Life", "Overlord", "Black Clover",
         "Vinland Saga", "Mob Psycho 100", "Violet Evergarden", "Your Lie in April", "Clannad",
-
-        # Estudios y conceptos
         "Studio Ghibli", "Shonen Jump", "Isekai", "Tsundere", "Shōnen",
-        "Seinen", "Mecha", "Openning", "Filler", "Mangaka",
+        "Seinen", "Mecha", "Filler", "Mangaka",
     ],
     "⚽ Futbolistas": [
-        # Leyendas históricas
         "Pelé", "Diego Maradona", "Johan Cruyff", "Franz Beckenbauer", "Ronaldo Nazário",
         "Zinedine Zidane", "Ronaldinho", "Roberto Carlos", "Cafu", "Paolo Maldini",
         "Franco Baresi", "Marco van Basten", "Ruud Gullit", "George Best", "Bobby Charlton",
         "Michel Platini", "Eusébio", "Garrincha", "Lev Yashin", "Ferenc Puskás",
-
-        # Generación 2000-2010
         "Thierry Henry", "Andrés Iniesta", "Xavi Hernández", "Steven Gerrard", "Frank Lampard",
         "Wayne Rooney", "Fernando Torres", "David Villa", "Kaká", "Samuel Eto'o",
         "Didier Drogba", "Gianluigi Buffon", "Carles Puyol", "John Terry", "Ashley Cole",
-
-        # Era moderna
         "Lionel Messi", "Cristiano Ronaldo", "Neymar", "Luka Modric", "Sergio Ramos",
         "Luis Suárez", "Zlatan Ibrahimović", "Arjen Robben", "Franck Ribéry", "Iker Casillas",
         "Manuel Neuer", "Sergio Busquets", "David Silva", "Cesc Fàbregas", "Mesut Özil",
-
-        # Actuales
         "Kylian Mbappé", "Erling Haaland", "Vinicius Jr", "Pedri", "Gavi",
         "Rodri", "Jude Bellingham", "Phil Foden", "Bukayo Saka", "Jamal Musiala",
         "Federico Valverde", "Rafael Leão", "Victor Osimhen", "Mohamed Salah", "Sadio Mané",
         "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
     ],
     "🎤 K-Pop": [
-        # Grupos de chicos (4ta generación)
         "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
         "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
         "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
-
-        # Grupos de chicos (3ra generación)
         "BTS", "EXO", "GOT7", "SEVENTEEN", "NCT 127",
         "SHINee", "BIGBANG", "2PM", "INFINITE", "VIXX",
         "WINNER", "iKON", "ASTRO", "DAY6", "HIGHLIGHT",
-
-        # Grupos de chicas (4ta generación)
         "BLACKPINK", "TWICE", "aespa", "IVE", "NewJeans",
         "ITZY", "NMIXX", "LE SSERAFIM", "MAMAMOO", "Red Velvet",
         "Kep1er", "STAYC", "EVERGLOW", "WEEEKLY", "tripleS", "BABYMONSTER",
-
-        # Grupos de chicas (3ra generación)
         "Girls Generation", "f(x)", "2NE1", "Wonder Girls", "T-ARA",
         "SISTAR", "4MINUTE", "AOA", "APINK", "EXID",
-
-        # Soloistas masculinos
-        "G-Dragon", "Taeyang", "Daesung", "Seungri", "T.O.P",
+        "G-Dragon", "Taeyang", "Daesung", "T.O.P",
         "PSY", "Rain", "Se7en", "Zico", "Jay Park",
-        "Dean", "Crush", "Dynamic Duo", "Epik High", "Loco",
-
-        # BTS (todos)
-        "RM", "Jin", "Suga", "J-Hope", "Jimin",
-        "V", "Jungkook",
-
-        # EXO (más populares)
+        "Dean", "Crush", "Epik High",
+        "RM", "Jin", "Suga", "J-Hope", "Jimin", "V", "Jungkook",
         "Baekhyun", "Chanyeol", "D.O", "Kai", "Sehun",
         "Suho", "Xiumin", "Chen", "Lay",
-
-        # SEVENTEEN (más populares)
         "Woozi", "Mingyu", "Vernon", "Hoshi", "Jeonghan",
         "S.Coups", "The8", "Dino",
-
-        # Stray Kids (todos)
         "Bang Chan", "Lee Know", "Changbin", "Hyunjin", "Han",
         "Felix", "Seungmin", "I.N",
-
-        # ATEEZ (todos)
         "Hongjoong", "Seonghwa", "Yunho", "Yeosang", "San",
         "Mingi", "Wooyoung", "Jongho",
-
-        # SHINee (todos)
         "Onew", "Key", "Minho", "Taemin",
-
-        # Soloistas femeninas
         "IU", "Sunmi", "HyunA", "Chungha", "Heize",
         "Jessi", "Somi", "Gain", "BoA", "CL",
-
-        # BLACKPINK (todas)
         "Jennie", "Lisa", "Rosé", "Jisoo",
-
-        # TWICE (todas)
         "Nayeon", "Jeongyeon", "Momo", "Sana", "Jihyo",
         "Mina", "Dahyun", "Chaeyoung", "Tzuyu",
-
-        # aespa (todas)
         "Karina", "Giselle", "Winter", "Ningning",
-
-        # IVE (todas)
         "Yujin", "Gaeul", "Rei", "Wonyoung", "Liz", "Leeseo",
-
-        # NewJeans (todas)
         "Minji", "Hanni", "Danielle", "Haerin", "Hyein",
-
-        # Red Velvet (todas)
         "Irene", "Seulgi", "Wendy", "Joy", "Yeri",
-
-        # ITZY (todas)
         "Yeji", "Lia", "Ryujin", "Chaeryeong", "Yuna",
-
-        # LE SSERAFIM (todas)
         "Sakura", "Chaewon", "Yunjin", "Kazuha", "Eunchae",
-
-        # Girls Generation (todas)
         "Taeyeon", "Tiffany", "Yoona", "Yuri", "Sooyoung",
         "Hyoyeon", "Sunny", "Seohyun",
-
-        # MAMAMOO (todas)
         "Solar", "Moonbyul", "Wheein", "Hwasa",
-
-        # NMIXX (todas)
-        "Lily", "Haewon", "Sullyoon", "Jinni", "Bae",
-        "Jiwoo", "Kyujin",
-
-        # STAYC (todas)
+        "Lily", "Haewon", "Sullyoon", "Bae", "Jiwoo", "Kyujin",
         "Sumin", "Sieun", "ISA", "Seeun", "Yoon", "J",
-
-        # Kep1er (todas)
-        "Yujin", "Mashiro", "Chaehyun", "Hikaru", "Huening Bahiyyih",
-        "Dayeon", "Xiaoting", "Yeseo", "Youngeun",
-
-        # EVERGLOW (todas)
-        "Aisha", "Sihyeon", "Mia", "Onda", "E:U", "Yiren",
-
-        # (G)I-DLE (todas)
+        "Mashiro", "Chaehyun", "Hikaru", "Dayeon", "Xiaoting", "Yeseo", "Youngeun",
+        "Aisha", "Sihyeon", "Mia", "Onda", "Yiren",
         "Miyeon", "Minnie", "Soojin", "Soyeon", "Yuqi", "Shuhua",
-
-        # EXID (todas)
         "Solji", "LE", "Hani", "Hyelin", "Jeonghwa",
-
-        # APINK (todas)
         "Chorong", "Bomi", "Eunji", "Namjoo", "Hayoung",
-
-        # tripleS (más populares)
-        "Kotone", "Seoyeon", "Hyerin", "Jiwoo", "Chaeyeon",
-        "Soomin", "Nara", "Dahyun",
-
-        # WEEEKLY (todas)
-        "Jihan", "Monday", "Soeun", "Jaehee", "Zoa", "Heeyeon", "Dayeon",
-        
-        # BABYMONSTER (todas)
-        "Ruka", "Pharita", "Asa", "Rami", "Ahyeon",
-        "Rora", "Chiquita",
-
-        # VIVIZ (todas)
         "SinB", "Eunha", "Umji",
+        "Ruka", "Pharita", "Asa", "Rami", "Ahyeon", "Rora", "Chiquita",
     ],
     "🍽️ Comidas del mundo": [
-        # Pastas y arroces
         "Pizza", "Pasta Carbonara", "Lasaña", "Risotto", "Paella",
         "Sushi", "Ramen", "Arroz frito", "Bibimbap",
-
-        # Carnes y proteínas
         "Hamburguesa", "Hot Dog", "Asado argentino", "Peking Duck", "Shawarma",
         "Kebab", "Tacos", "Barbacoa", "Churrasco", "Cordero al horno",
-
-        # Sopas y caldos
         "Tom Yum", "Gazpacho", "Borscht", "Caldo de pollo",
         "Miso", "Minestrone", "Goulash", "Ceviche",
-
-        # Panes y bocadillos
         "Croissant", "Bagel", "Pretzel", "Falafel", "Empanada",
         "Arepa", "Tortilla", "Naan", "Baguette", "Pita",
-
-        # Platos típicos
         "Curry", "Hummus", "Moussaka", "Couscous", "Kimchi",
         "Tempura", "Dim Sum", "Gyoza", "Burrito", "Enchilada",
-        "Ceviche", "Tiramisu", "Crêpe", "Waffle", "Empanada",
-
-        # Postres y dulces
+        "Tiramisu", "Crêpe", "Waffle",
         "Cheesecake", "Macarons", "Baklava", "Mochi", "Churros",
         "Crème Brûlée", "Brownie", "Donut", "Cannoli", "Profiteroles",
-
-        # Desayunos icónicos
         "Pancakes", "Eggs Benedict", "Granola", "Acai Bowl", "Shakshuka",
-
-        # Snacks y street food
-        "Nachos", "Spring Rolls", "Samosa", "Poutine", "Arepas",
+        "Nachos", "Spring Rolls", "Samosa", "Poutine",
         "Fish and Chips", "Currywurst", "Takoyaki", "Elote", "Pupusas",
     ],
     "🌟 Famosos": [
-        # Actores de Hollywood
         "Tom Hanks", "Meryl Streep", "Leonardo DiCaprio", "Scarlett Johansson", "Denzel Washington",
         "Brad Pitt", "Angelina Jolie", "Johnny Depp", "Natalie Portman", "Cate Blanchett",
         "Robert Downey Jr", "Chris Evans", "Margot Robbie", "Ryan Reynolds", "Dwayne Johnson",
         "Will Smith", "Morgan Freeman", "Samuel L. Jackson", "Jennifer Lawrence", "Emma Stone",
-
-        # Directores y creadores
         "Steven Spielberg", "Christopher Nolan", "Quentin Tarantino", "Martin Scorsese", "Tim Burton",
-
-        # Músicos globales
         "Michael Jackson", "Madonna", "Beyoncé", "Taylor Swift", "Rihanna",
         "Eminem", "Drake", "Bad Bunny", "J Balvin", "Shakira",
         "Ed Sheeran", "Adele", "Lady Gaga", "Justin Bieber", "Billie Eilish",
         "The Weeknd", "Kanye West", "Jay-Z", "Ariana Grande", "Dua Lipa",
-
-        # Influencers y streamers
         "MrBeast", "PewDiePie", "Ibai", "Auronplay", "TheGrefg",
         "Ninja", "Pokimane", "xQc", "Rubius", "Vegetta777",
-
-        # Empresarios y figuras públicas
         "Elon Musk", "Jeff Bezos", "Mark Zuckerberg", "Steve Jobs", "Bill Gates",
     ],
     "🎬 Películas & Series": [
-        # Películas clásicas
         "El Padrino", "Titanic", "Schindler's List", "Pulp Fiction", "Forrest Gump",
         "El Rey León", "Matrix", "Gladiador", "Interstellar", "Inception",
         "El Señor de los Anillos", "Star Wars", "Indiana Jones", "Jurassic Park", "Alien",
         "Terminator", "RoboCop", "Blade Runner", "2001 Odisea en el espacio", "Psicosis",
-
-        # Películas modernas
         "Avatar", "Avengers Endgame", "Spider-Man", "Batman", "Superman",
         "Black Panther", "Iron Man", "Doctor Strange", "Joker", "Oppenheimer",
         "Barbie", "Top Gun", "John Wick", "Everything Everywhere", "Get Out",
-
-        # Series icónicas
         "Breaking Bad", "Game of Thrones", "The Wire", "Los Soprano", "The Office",
         "Friends", "Seinfeld", "Lost", "24", "House of Cards",
         "Stranger Things", "Black Mirror", "Peaky Blinders", "Narcos", "Dexter",
         "The Crown", "Chernobyl", "Squid Game", "Dark", "Severance",
-
-        # Animadas
         "Los Simpsons", "South Park", "Futurama", "Rick y Morty", "Bob's Burgers",
         "Avatar La Leyenda de Aang", "Arcane", "Bojack Horseman", "Gravity Falls", "Steven Universe",
-
-        # Personajes icónicos
         "Walter White", "Tony Soprano", "Daenerys Targaryen", "Jon Snow", "Tyrion Lannister",
-        "Hannibal Lecter", "James Bond", "Indiana Jones", "Ellen Ripley", "El Guasón",
+        "Hannibal Lecter", "James Bond", "Ellen Ripley", "El Guasón",
     ],
     "💼 Profesiones": [
-        # Salud
         "Médico", "Enfermero", "Cirujano", "Psicólogo", "Dentista",
         "Veterinario", "Farmacéutico", "Fisioterapeuta", "Paramédico", "Nutricionista",
-
-        # Tecnología
         "Programador", "Diseñador web", "Ingeniero de software", "Hacker ético", "Analista de datos",
-        "Inteligencia artificial", "Administrador de redes", "Desarrollador móvil", "DevOps", "CTO",
-
-        # Arte y entretenimiento
+        "Administrador de redes", "Desarrollador móvil", "DevOps",
         "Actor", "Director de cine", "Músico", "Fotógrafo", "Ilustrador",
         "Escritor", "Periodista", "Diseñador gráfico", "Animador", "Productor musical",
-
-        # Educación y ciencia
         "Maestro", "Profesor universitario", "Científico", "Arqueólogo", "Astrónomo",
         "Biólogo marino", "Geólogo", "Antropólogo", "Historiador", "Filósofo",
-
-        # Servicios y oficios
         "Chef", "Bombero", "Policía", "Abogado", "Juez",
         "Arquitecto", "Piloto", "Astronauta", "Detective", "Diplomático",
         "Mecánico", "Electricista", "Carpintero", "Plomero", "Soldador",
-
-        # Deportes y aventura
         "Futbolista", "Atleta olímpico", "Entrenador personal", "Árbitro", "Escalador profesional",
         "Buzo", "Piloto de carreras", "Jinete", "Surfista profesional", "Boxeador",
+    ],
+    "🎮 Videojuegos": [
+        "Mario", "Link", "Master Chief", "Kratos", "Geralt de Rivia",
+        "Lara Croft", "Nathan Drake", "Cloud Strife", "Solid Snake", "Samus Aran",
+        "Sonic", "Pikachu", "Crash Bandicoot", "Spyro", "Mega Man",
+        "Dante", "Ryu", "Sub-Zero", "Scorpion", "Kazuya Mishima",
+        "Arthur Morgan", "Joel", "Ellie", "Aloy",
+        "Minecraft", "Fortnite", "League of Legends", "Counter-Strike", "Valorant",
+        "Grand Theft Auto", "Red Dead Redemption", "The Last of Us", "God of War", "Zelda",
+        "Dark Souls", "Elden Ring", "Cyberpunk 2077", "The Witcher", "Skyrim",
+        "Call of Duty", "Halo", "FIFA", "NBA 2K",
+        "Among Us", "Rocket League", "Overwatch", "Apex Legends", "PUBG",
+        "Resident Evil", "Silent Hill", "Bioshock", "Portal", "Half-Life",
+        "Super Mario", "Pokemon", "Tetris", "Pac-Man", "Space Invaders",
+        "Final Fantasy", "Dragon Quest", "Monster Hunter", "Street Fighter", "Mortal Kombat",
+        "PlayStation", "Xbox", "Nintendo Switch", "Game Boy", "Atari",
+        "Nintendo", "Sony", "Valve", "Rockstar Games",
+        "Naughty Dog", "CD Projekt Red", "FromSoftware", "Blizzard", "Epic Games",
     ],
 }
 
@@ -472,7 +311,6 @@ def generar_pistas(palabra: str, categoria: str) -> str:
         return "1\\. Piensa en sus características principales\n2\\. Recuerda dónde o cómo se usa"
 
 
-
 # ── Base de datos ──────────────────────────────────────────────
 def init_db():
     conn = sqlite3.connect("impostor.db")
@@ -485,6 +323,7 @@ def init_db():
             categoria       TEXT,
             palabra         TEXT,
             impostor_ids    TEXT,
+            vivos           TEXT,
             ronda           INTEGER DEFAULT 1,
             creador_id      INTEGER
         );
@@ -513,12 +352,14 @@ def get_conn():
     return sqlite3.connect("impostor.db")
 
 # ── Helpers ────────────────────────────────────────────────────
+# partida: (chat_key, chat_id, estado, categoria, palabra, impostor_ids, vivos, ronda, creador_id)
+#           [0]       [1]      [2]     [3]        [4]     [5]            [6]    [7]    [8]
+
 def get_partida(chat_key):
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM partidas WHERE chat_key=?", (chat_key,)
         ).fetchone()
-    # devuelve: (chat_key, chat_id, estado, categoria, palabra, impostor_id, ronda, creador_id)
 
 def get_jugadores(chat_key):
     with get_conn() as conn:
@@ -552,16 +393,36 @@ def sumar_derrota(chat_key, user_id):
             (chat_key, user_id)
         )
 
+def get_vivos(chat_key):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT vivos FROM partidas WHERE chat_key=?", (chat_key,)
+        ).fetchone()
+    if not row or not row[0]:
+        return []
+    return [int(i) for i in row[0].split(",")]
+
+def set_vivos(chat_key, vivos_ids):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE partidas SET vivos=? WHERE chat_key=?",
+            (",".join(str(i) for i in vivos_ids), chat_key)
+        )
+
+def eliminar_de_vivos(chat_key, user_id):
+    vivos = get_vivos(chat_key)
+    vivos = [v for v in vivos if v != user_id]
+    set_vivos(chat_key, vivos)
+    return vivos
+
 def nombre(user):
     return user.first_name or user.username or str(user.id)
 
 def esc(text):
-    """Escapa caracteres especiales de MarkdownV2."""
     chars = r"\_*[]()~`>#+-=|{}.!"
     return "".join(f"\\{c}" if c in chars else c for c in str(text))
 
 def get_chat_key(update):
-    """Retorna una clave única por chat + tema si existe."""
     chat_id = update.effective_chat.id
     thread_id = update.effective_message.message_thread_id if update.effective_message else None
     return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
@@ -587,14 +448,67 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "🕵️ *Bienvenido al Bot del Impostor\\!*\n\n"
         "El juego es simple:\n"
         "• Todos reciben la *misma palabra secreta*\n"
-        "• Excepto el *impostor*, que no la sabe\n"
+        "• Excepto el/los *impostores*, que no la saben\n"
         "• Den pistas sin decirla directamente 🎭\n"
-        "• El grupo vota quién es el impostor\n\n"
+        "• El grupo vota para eliminar jugadores por rondas\n\n"
         "*Comandos:*\n"
         "`/jugarimpostor` — Crear una partida\n"
         "`/unirse` — Unirse a la partida\n"
-        "`/iniciar` — Empezar \\(mín\\. 3 jugadores\\)\n"
-        "`/votar` — Abrir votación final\n"
+        "`/votar` — Abrir votación \\(solo el creador\\)\n"
+        "`/comojugar` — Cómo se juega\n"
+        "`/puntaje` — Ver marcador\n"
+        "`/cancelar` — Cancelar partida",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def cmd_como_jugar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🕵️ *¿Cómo se juega El Impostor?*\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*📋 Objetivo*\n"
+        "El grupo debe eliminar a todos los impostores\\. "
+        "Los impostores deben pasar desapercibidos o adivinar la palabra secreta\\.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*🎮 Pasos del juego*\n\n"
+        "*1\\. Crear la partida*\n"
+        "Alguien usa `/jugarimpostor` y los demás se unen con `/unirse` o el botón\\.\n\n"
+        "*2\\. Iniciar*\n"
+        "Con mínimo 3 jugadores, el creador elige una categoría y pulsa *¡Iniciar partida\\!*\n\n"
+        "*3\\. Palabras secretas*\n"
+        "El bot envía un mensaje privado a cada jugador:\n"
+        "• Los jugadores normales reciben la *palabra secreta*\n"
+        "• El/los impostor\\(es\\) NO reciben la palabra, solo la categoría 🎭\n\n"
+        "*4\\. Dar pistas*\n"
+        "Siguiendo el orden aleatorio, cada jugador da *una pista* sobre la palabra\\. "
+        "El impostor debe inventar una pista convincente sin saber la palabra\\.\n\n"
+        "*5\\. Votar*\n"
+        "Cuando todos hayan dado su pista, el creador usa `/votar`\\. "
+        "Solo los jugadores *vivos* votan\\. El más votado queda eliminado\\.\n\n"
+        "*6\\. Revelación y nueva ronda*\n"
+        "Se revela si el eliminado era impostor o inocente\\. "
+        "Si quedan jugadores, se muestra un nuevo orden y continúa el juego\\.\n\n"
+        "*7\\. Último intento del impostor*\n"
+        "Si el grupo vota a un impostor, este tiene *una última oportunidad*: "
+        "adivinar la palabra escribiéndola en el chat\\. "
+        "Si la adivina, *todos los impostores ganan*\\.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*🏆 ¿Quién gana?*\n\n"
+        "🎉 *Grupo gana* si:\n"
+        "  • Eliminan a todos los impostores\n\n"
+        "🕵️ *Impostor\\(es\\) gana\\(n\\)* si:\n"
+        "  • Solo queda 1 inocente junto a un impostor\n"
+        "  • Un impostor adivina la palabra al ser votado\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*👥 Impostores según jugadores*\n"
+        "  • 3\\-4 jugadores → 1 impostor\n"
+        "  • 5\\-6 jugadores → 1 a 3 impostores \\(al azar\\)\n"
+        "  • 7\\+ jugadores → 2 a 3 impostores \\(al azar\\)\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*📌 Comandos*\n"
+        "`/jugarimpostor` — Crear partida\n"
+        "`/unirse` — Unirse a la partida\n"
+        "`/votar` — Abrir votación \\(creador\\)\n"
         "`/puntaje` — Ver marcador\n"
         "`/cancelar` — Cancelar partida",
         parse_mode="MarkdownV2"
@@ -616,17 +530,18 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "INSERT OR REPLACE INTO partidas (chat_key, chat_id, estado, creador_id, ronda) VALUES (?,?,?,?,1)",
             (chat_key, chat_id, "esperando", user.id)
         )
-        
+
     upsert_jugador(chat_key, user.id, nombre(user))
 
     keyboard = [[InlineKeyboardButton("✋ Unirse a la partida", callback_data="unirse")]]
     await update.message.reply_text(
         f"🎮 *{esc(nombre(user))} creó una nueva partida del juego Impostor\\!*\n\n"
         "Pulsen el botón o usen /unirse para sumarse\\.\n"
-        "Cuando estén listos, el creador usa /iniciar\\.",
+        "Cuando estén listos, el creador pulsa *¡Iniciar partida\\!*",
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 async def cmd_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _unirse(get_chat_key(update), update.effective_user, update.message.reply_text)
@@ -667,7 +582,7 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not partida or partida[2] != "esperando":
         await query.answer("No hay partida en espera.", show_alert=True)
         return
-    if partida[7] != user.id:
+    if partida[8] != user.id:
         await query.answer("⚠️ Solo el creador puede iniciar la partida.", show_alert=True)
         return
 
@@ -687,34 +602,6 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def cmd_iniciar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_key = get_chat_key(update)
-    user = update.effective_user
-    partida = get_partida(chat_key)
-
-    if not partida or partida[2] != "esperando":
-        await update.message.reply_text("⚠️ No hay partida en espera. Usa /jugarimpostor.")
-        return
-    if partida[7] != user.id:
-        await update.message.reply_text("⚠️ Solo el creador puede iniciar la partida.")
-        return
-
-    jugadores = get_jugadores(chat_key)
-    if len(jugadores) < 3:
-        await update.message.reply_text(f"⚠️ Necesitas al menos 3 jugadores. Ahora hay {len(jugadores)}.")
-        return
-
-    keyboard = [
-        [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
-        for cat in CATEGORIAS
-    ]
-    keyboard.append([InlineKeyboardButton("🎲 ¡Sorpréndeme! (Random)", callback_data="cat:RANDOM")])
-    await update.message.reply_text(
-        "🗂️ *Elige una categoría:*",
-        parse_mode="MarkdownV2",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
 
 async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -724,7 +611,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     partida = get_partida(chat_key)
-    if not partida or partida[7] != user.id:
+    if not partida or partida[8] != user.id:
         await query.answer("Solo el creador puede elegir la categoría.", show_alert=True)
         return
 
@@ -738,11 +625,12 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     impostores = random.sample(jugadores, num_impostores)
     impostor_ids = ",".join(str(i[0]) for i in impostores)
     impostor_ids_set = set(i[0] for i in impostores)
+    vivos_ids = ",".join(str(j[0]) for j in jugadores)
 
     with get_conn() as conn:
         conn.execute(
-            "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=? WHERE chat_key=?",
-            (categoria, palabra, impostor_ids, chat_key)
+            "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=?, vivos=? WHERE chat_key=?",
+            (categoria, palabra, impostor_ids, vivos_ids, chat_key)
         )
 
     texto_cat_confirmacion = "🎲 *¡Categoría sorpresa\\!*" if query.data == "cat:RANDOM" else f"✅ Categoría: *{esc(categoria)}*"
@@ -794,28 +682,38 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{texto_cat_grupo}\n\n"
         f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
-        f"Cuando todos hayan dado su pista, usen /votar 🗳️"
+        f"Cuando todos hayan dado su pista, el creador usa /votar 🗳️"
         + aviso,
         parse_mode="MarkdownV2"
     )
 
+
 async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     partida = get_partida(chat_key)
+    user = update.effective_user
 
     if not partida or partida[2] != "jugando":
         await update.message.reply_text("⚠️ No hay partida en curso.")
         return
 
+    if partida[8] != user.id:
+        await update.message.reply_text("⚠️ Solo el creador puede abrir la votación.")
+        return
+
+    vivos_ids = get_vivos(chat_key)
     jugadores = get_jugadores(chat_key)
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+
     keyboard = [
         [InlineKeyboardButton(f"🗳️ {j[1]}", callback_data=f"voto:{j[0]}")]
-        for j in jugadores
+        for j in vivos
     ]
     ctx.bot_data[f"votos_{chat_key}"] = {}
 
     await update.message.reply_text(
-        "🗳️ *¿Quién es el impostor\\?*\n\n_Cada jugador debe votar:_",
+        f"🗳️ *¿Quién es el impostor\\?*\n\n"
+        f"_Jugadores vivos \\({len(vivos)}\\) — solo ellos votan:_",
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -831,9 +729,12 @@ async def btn_voto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("La votación ya cerró.", show_alert=True)
         return
 
+    vivos_ids = get_vivos(chat_key)
     jugadores = get_jugadores(chat_key)
-    if not any(j[0] == voter_id for j in jugadores):
-        await query.answer("No eres parte de esta partida.", show_alert=True)
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+
+    if voter_id not in vivos_ids:
+        await query.answer("No puedes votar: estás eliminado o no eres parte de esta partida.", show_alert=True)
         return
 
     votado_id = int(query.data.split(":")[1])
@@ -846,18 +747,18 @@ async def btn_voto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     votos[voter_id] = votado_id
     await query.answer("✅ ¡Voto registrado!")
 
-    faltantes = len(jugadores) - len(votos)
+    faltantes = len(vivos) - len(votos)
     await query.message.reply_text(
         f"✅ *{esc(query.from_user.first_name)}* votó\\. "
         + (f"Faltan *{faltantes}* votos\\." if faltantes > 0 else ""),
         parse_mode="MarkdownV2"
     )
 
-    if len(votos) >= len(jugadores):
-        await resolver_votacion(chat_key, ctx, partida, jugadores, votos, query.message)
+    if len(votos) >= len(vivos):
+        await resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, query.message)
 
 
-async def resolver_votacion(chat_key, ctx, partida, jugadores, votos, message):
+async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, message):
     conteo = {}
     for votado in votos.values():
         conteo[votado] = conteo.get(votado, 0) + 1
@@ -865,7 +766,7 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, votos, message):
     eliminado_id = max(conteo, key=conteo.get)
     impostor_ids_set = set(int(i) for i in partida[5].split(","))
     impostores = [j for j in jugadores if j[0] in impostor_ids_set]
-    eliminado = next((j for j in jugadores if j[0] == eliminado_id), None)
+    eliminado = next((j for j in vivos if j[0] == eliminado_id), None)
     palabra = partida[4]
     categoria = partida[3]
 
@@ -875,125 +776,90 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, votos, message):
         for v_from, v_to in votos.items()
     )
 
-    if eliminado_id not in impostor_ids_set:
-        # Votaron a un inocente → impostores ganan
-        await _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message)
+    es_impostor = eliminado_id in impostor_ids_set
+    etiqueta = "🕵️ ¡Era impostor\\!" if es_impostor else "✅ Era inocente\\."
+
+    # Eliminar al votado de los vivos
+    vivos_restantes_ids = eliminar_de_vivos(chat_key, eliminado_id)
+    impostores_vivos = [j for j in impostores if j[0] in vivos_restantes_ids]
+    inocentes_vivos_ids = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+
+    await message.reply_text(
+        f"🗳️ *Resultado de la votación:*\n\n"
+        f"El grupo votó por *{esc(eliminado[1])}*\n"
+        f"{etiqueta}\n\n"
+        f"*Votos:*\n{detalle_votos}",
+        parse_mode="MarkdownV2"
+    )
+
+    # ── Impostor votado → oportunidad de adivinar ──
+    if es_impostor:
+        with get_conn() as conn:
+            conn.execute("UPDATE partidas SET estado='adivinando' WHERE chat_key=?", (chat_key,))
+
+        ctx.bot_data[f"adivinando_{chat_key}"] = {
+            "impostor_id": eliminado_id,
+            "impostor_ids_set": impostor_ids_set,
+            "palabra": palabra,
+            "categoria": categoria,
+            "jugadores": jugadores,
+            "vivos_restantes_ids": vivos_restantes_ids,
+            "impostores_vivos": impostores_vivos,
+            "inocentes_vivos_ids": inocentes_vivos_ids,
+            "detalle_votos": detalle_votos,
+            "partida": partida,
+            "impostores": impostores,
+        }
+
+        await message.reply_text(
+            f"🎯 *¡Última oportunidad, {esc(eliminado[1])}\\!*\n\n"
+            f"Si adivinas la palabra secreta *¡tú y todos los impostores ganarán\\!*\n\n"
+            f"📝 Escribe la palabra ahora en el chat\\.\n"
+            f"_Categoría: {esc(categoria)}_",
+            parse_mode="MarkdownV2"
+        )
         return
 
-    # Votaron a un impostor → ese impostor puede adivinar
-    impostor_votado = eliminado
-
-    with get_conn() as conn:
-        conn.execute("UPDATE partidas SET estado='adivinando' WHERE chat_key=?", (chat_key,))
-
-    ctx.bot_data[f"adivinando_{chat_key}"] = {
-        "impostor_id": impostor_votado[0],
-        "impostor_ids_set": impostor_ids_set,
-        "palabra": palabra,
-        "categoria": categoria,
-        "jugadores": jugadores,
-        "detalle_votos": detalle_votos,
-        "partida": partida,
-        "impostores": impostores,
-    }
-
-    await message.reply_text(
-        f"🎯 *¡El grupo votó por {esc(impostor_votado[1])}\\!*\n\n"
-        f"🕵️ *{esc(impostor_votado[1])}*, ¡esta es tu última oportunidad\\!\n\n"
-        f"Si adivinas la palabra secreta, *¡todos los impostores ganarán\\!*\n\n"
-        f"📝 Escribe tu respuesta ahora en el chat\\.\n"
-        f"_Categoría: {esc(categoria)}_",
-        parse_mode="MarkdownV2"
-    )
-
-async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
-    impostor_ids_set = set(j[0] for j in impostores)
-    for j in jugadores:
-        if j[0] not in impostor_ids_set:
-            sumar_victoria(chat_key, j[0])
-    for imp in impostores:
-        sumar_derrota(chat_key, imp[0])
-
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
-            (chat_key, "grupo", palabra, categoria)
-        )
-        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
-
-    jugadores_act = get_jugadores(chat_key)
-    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
-    tabla = "\n".join(lineas)
-
-    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
-
-    await message.reply_text(
-        f"🎉 *¡El grupo ganó\\!*\n\n"
-        f"Los impostores eran: {nombres_impostores}\n"
-        f"¡No pudieron adivinar la palabra\\!\n\n"
-        f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
-        f"*Votos:*\n{detalle_votos}\n\n"
-        f"*🏆 Marcador:*\n{tabla}\n\n"
-        "_Usa /jugarimpostor para otra ronda_",
-        parse_mode="MarkdownV2"
-    )
-
-
-async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message):
-    impostor_ids_set = set(j[0] for j in impostores)
-    for imp in impostores:
-        sumar_victoria(chat_key, imp[0])
-    for j in jugadores:
-        if j[0] not in impostor_ids_set:
-            sumar_derrota(chat_key, j[0])
-
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
-            (chat_key, "impostor", palabra, categoria)
-        )
-        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
-
-    jugadores_act = get_jugadores(chat_key)
-    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
-    tabla = "\n".join(lineas)
-
-    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
-
-    desc = (
-        f"Votaron incorrectamente por *{esc(eliminado[1])}*"
-        if eliminado and eliminado[0] not in impostor_ids_set
-        else f"*{esc(impostores[0][1] if impostores else '?')}* adivinó la palabra correcta\\!"
-    )
-
-    await message.reply_text(
-        f"🕵️ *¡Los impostores ganaron\\!*\n\n"
-        f"Eran: {nombres_impostores}\n"
-        f"{desc}\n\n"
-        f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
-        f"*Votos:*\n{detalle_votos}\n\n"
-        f"*🏆 Marcador:*\n{tabla}\n\n"
-        "_Usa /jugarimpostor para otra ronda_",
-        parse_mode="MarkdownV2"
-    )
-    
-async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_key = get_chat_key(update)
-    jugadores = get_jugadores(chat_key)
-
-    if not jugadores:
-        await update.message.reply_text("📊 No hay estadísticas aún\\. ¡Juega primero\\!", parse_mode="MarkdownV2")
+    # ── Inocente votado ──
+    # Verificar si ya no quedan impostores
+    if not impostores_vivos:
+        await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message)
         return
 
-    lineas = []
-    for j in jugadores:
-        lineas.append(f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D")
-    tabla = "\n".join(lineas)
+    # Victoria automática: quedan solo 2 vivos y al menos 1 es impostor
+    if len(vivos_restantes_ids) <= 2:
+        await _fin_impostores_ganan(
+            chat_key, ctx, partida, jugadores, impostores,
+            None, palabra, categoria, detalle_votos, message, razon="supervivencia"
+        )
+        return
 
-    await update.message.reply_text(
-        f"🏆 *Marcador del grupo:*\n\n{tabla}",
+    # Continuar con nueva ronda
+    await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
+
+
+async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_set, palabra, categoria, message):
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+    orden = list(vivos)
+    random.shuffle(orden)
+    turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
+
+    num_impostores_vivos = sum(1 for v in vivos_ids if v in impostor_ids_set)
+    num_inocentes_vivos = len(vivos_ids) - num_impostores_vivos
+
+    with get_conn() as conn:
+        conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
+
+    await message.reply_text(
+        f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
+        f"👥 Jugadores vivos: *{len(vivos)}* "
+        f"\\({num_impostores_vivos} impostor\\(es\\) y {num_inocentes_vivos} inocente\\(s\\)\\)\n\n"
+        f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
+        f"Cada uno da *una pista* sobre la palabra\\.\n"
+        f"Cuando terminen, el creador usa /votar 🗳️",
         parse_mode="MarkdownV2"
     )
+
 
 async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
@@ -1016,11 +882,15 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     categoria = datos["categoria"]
     detalle_votos = datos["detalle_votos"]
     impostores = datos["impostores"]
-    impostor_votado = next((j for j in jugadores if j[0] == user.id), None)
+    vivos_restantes_ids = datos["vivos_restantes_ids"]
+    impostores_vivos = datos["impostores_vivos"]
+    inocentes_vivos_ids = datos["inocentes_vivos_ids"]
+    impostor_ids_set = datos["impostor_ids_set"]
 
     ctx.bot_data.pop(f"adivinando_{chat_key}", None)
 
     if texto == palabra.lower():
+        # ✅ Adivinó → todos los impostores ganan
         await update.message.reply_text(
             f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
             f"La palabra era *{esc(palabra)}*\\. ¡Los impostores ganan\\! 🕵️",
@@ -1031,15 +901,115 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             None, palabra, categoria, detalle_votos, update.message
         )
     else:
+        # ❌ Falló → ese impostor queda eliminado definitivamente
         await update.message.reply_text(
             f"❌ *{esc(nombre(user))}* escribió *{esc(texto)}*\\.\\.\\. ¡Incorrecto\\!\n\n"
-            f"La palabra era *{esc(palabra)}*\\. ¡El grupo gana\\! 🎉",
+            f"*{esc(nombre(user))}* queda eliminado definitivamente\\.",
             parse_mode="MarkdownV2"
         )
-        await _fin_grupo_gana(
-            chat_key, ctx, jugadores, impostores,
-            palabra, categoria, detalle_votos, update.message
+
+        # ¿Quedan más impostores vivos?
+        if not impostores_vivos:
+            await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, update.message)
+            return
+
+        # Victoria automática por supervivencia
+        if len(vivos_restantes_ids) <= 2:
+            await _fin_impostores_ganan(
+                chat_key, ctx, partida, jugadores, impostores,
+                None, palabra, categoria, detalle_votos, update.message, razon="supervivencia"
+            )
+            return
+
+        # Continuar con nueva ronda
+        await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, update.message)
+
+
+async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
+    impostor_ids_set = set(j[0] for j in impostores)
+    for j in jugadores:
+        if j[0] not in impostor_ids_set:
+            sumar_victoria(chat_key, j[0])
+    for imp in impostores:
+        sumar_derrota(chat_key, imp[0])
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
+            (chat_key, "grupo", palabra, categoria)
         )
+        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
+
+    jugadores_act = get_jugadores(chat_key)
+    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
+    tabla = "\n".join(lineas)
+    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
+
+    await message.reply_text(
+        f"🎉 *¡El grupo ganó\\!*\n\n"
+        f"Los impostores eran: {nombres_impostores}\n"
+        f"¡Fueron eliminados sin adivinar la palabra\\!\n\n"
+        f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
+        f"*🏆 Marcador:*\n{tabla}\n\n"
+        "_Usa /jugarimpostor para otra ronda_",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message, razon=None):
+    impostor_ids_set = set(j[0] for j in impostores)
+    for imp in impostores:
+        sumar_victoria(chat_key, imp[0])
+    for j in jugadores:
+        if j[0] not in impostor_ids_set:
+            sumar_derrota(chat_key, j[0])
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
+            (chat_key, "impostor", palabra, categoria)
+        )
+        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
+
+    jugadores_act = get_jugadores(chat_key)
+    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores_act]
+    tabla = "\n".join(lineas)
+    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
+
+    if razon == "supervivencia":
+        desc = "Los impostores sobrevivieron hasta quedar solos con un inocente\\."
+    elif eliminado is None:
+        desc = "Un impostor adivinó la palabra correcta\\."
+    else:
+        desc = f"Votaron incorrectamente por *{esc(eliminado[1])}*\\."
+
+    await message.reply_text(
+        f"🕵️ *¡Los impostores ganaron\\!*\n\n"
+        f"Eran: {nombres_impostores}\n"
+        f"{desc}\n\n"
+        f"🔑 La palabra era: *{esc(palabra)}* \\({esc(categoria)}\\)\n\n"
+        f"*🏆 Marcador:*\n{tabla}\n\n"
+        "_Usa /jugarimpostor para otra ronda_",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    jugadores = get_jugadores(chat_key)
+
+    if not jugadores:
+        await update.message.reply_text("📊 No hay estadísticas aún\\. ¡Juega primero\\!", parse_mode="MarkdownV2")
+        return
+
+    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores]
+    tabla = "\n".join(lineas)
+
+    await update.message.reply_text(
+        f"🏆 *Marcador del grupo:*\n\n{tabla}",
+        parse_mode="MarkdownV2"
+    )
+
 
 async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
@@ -1047,11 +1017,12 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
     await update.message.reply_text("❌ Partida cancelada\\. Usa /jugarimpostor para empezar otra\\.", parse_mode="MarkdownV2")
 
+
 async def error_handler(update, ctx):
     error = ctx.error
     if isinstance(error, Conflict):
-        logger.critical("⚠️ Conflicto de instancia. Saliendo con sys.exit...")
-        os._exit(1)  # Fuerza cierre total del proceso
+        logger.critical("⚠️ Conflicto de instancia. Saliendo...")
+        os._exit(1)
     else:
         logger.error(f"Error: {error}")
 
@@ -1061,21 +1032,21 @@ def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("jugarimpostor", cmd_nueva))
-    app.add_handler(CommandHandler("unirse",   cmd_unirse))
-    app.add_handler(CommandHandler("iniciar", cmd_iniciar))
-    app.add_handler(CommandHandler("votar",    cmd_votar))
-    app.add_handler(CommandHandler("puntaje",  cmd_puntaje))
-    app.add_handler(CommandHandler("cancelar", cmd_cancelar))
+    app.add_handler(CommandHandler("unirse",        cmd_unirse))
+    app.add_handler(CommandHandler("votar",         cmd_votar))
+    app.add_handler(CommandHandler("puntaje",       cmd_puntaje))
+    app.add_handler(CommandHandler("cancelar",      cmd_cancelar))
+    app.add_handler(CommandHandler("comojugar",     cmd_como_jugar))
 
-    app.add_handler(CallbackQueryHandler(btn_unirse,    pattern="^unirse$"))
+    app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
-    app.add_handler(CallbackQueryHandler(btn_categoria, pattern="^cat:"))
-    app.add_handler(CallbackQueryHandler(btn_voto,      pattern="^voto:"))
+    app.add_handler(CallbackQueryHandler(btn_categoria,       pattern="^cat:"))
+    app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
     app.add_error_handler(error_handler)
-    
+
     logger.info("🤖 Bot iniciado...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
