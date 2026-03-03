@@ -337,6 +337,114 @@ CATEGORIAS = {
         # VIVIZ (todas)
         "SinB", "Eunha", "Umji",
     ],
+    "🍽️ Comidas del mundo": [
+        # Pastas y arroces
+        "Pizza", "Pasta Carbonara", "Lasaña", "Risotto", "Paella",
+        "Sushi", "Ramen", "Arroz frito", "Bibimbap",
+
+        # Carnes y proteínas
+        "Hamburguesa", "Hot Dog", "Asado argentino", "Peking Duck", "Shawarma",
+        "Kebab", "Tacos", "Barbacoa", "Churrasco", "Cordero al horno",
+
+        # Sopas y caldos
+        "Tom Yum", "Gazpacho", "Borscht", "Caldo de pollo",
+        "Miso", "Minestrone", "Goulash", "Ceviche",
+
+        # Panes y bocadillos
+        "Croissant", "Bagel", "Pretzel", "Falafel", "Empanada",
+        "Arepa", "Tortilla", "Naan", "Baguette", "Pita",
+
+        # Platos típicos
+        "Curry", "Hummus", "Moussaka", "Couscous", "Kimchi",
+        "Tempura", "Dim Sum", "Gyoza", "Burrito", "Enchilada",
+        "Ceviche", "Tiramisu", "Crêpe", "Waffle", "Empanada",
+
+        # Postres y dulces
+        "Cheesecake", "Macarons", "Baklava", "Mochi", "Churros",
+        "Crème Brûlée", "Brownie", "Donut", "Cannoli", "Profiteroles",
+
+        # Desayunos icónicos
+        "Pancakes", "Eggs Benedict", "Granola", "Acai Bowl", "Shakshuka",
+
+        # Snacks y street food
+        "Nachos", "Spring Rolls", "Samosa", "Poutine", "Arepas",
+        "Fish and Chips", "Currywurst", "Takoyaki", "Elote", "Pupusas",
+    ],
+    "🌟 Famosos": [
+        # Actores de Hollywood
+        "Tom Hanks", "Meryl Streep", "Leonardo DiCaprio", "Scarlett Johansson", "Denzel Washington",
+        "Brad Pitt", "Angelina Jolie", "Johnny Depp", "Natalie Portman", "Cate Blanchett",
+        "Robert Downey Jr", "Chris Evans", "Margot Robbie", "Ryan Reynolds", "Dwayne Johnson",
+        "Will Smith", "Morgan Freeman", "Samuel L. Jackson", "Jennifer Lawrence", "Emma Stone",
+
+        # Directores y creadores
+        "Steven Spielberg", "Christopher Nolan", "Quentin Tarantino", "Martin Scorsese", "Tim Burton",
+
+        # Músicos globales
+        "Michael Jackson", "Madonna", "Beyoncé", "Taylor Swift", "Rihanna",
+        "Eminem", "Drake", "Bad Bunny", "J Balvin", "Shakira",
+        "Ed Sheeran", "Adele", "Lady Gaga", "Justin Bieber", "Billie Eilish",
+        "The Weeknd", "Kanye West", "Jay-Z", "Ariana Grande", "Dua Lipa",
+
+        # Influencers y streamers
+        "MrBeast", "PewDiePie", "Ibai", "Auronplay", "TheGrefg",
+        "Ninja", "Pokimane", "xQc", "Rubius", "Vegetta777",
+
+        # Empresarios y figuras públicas
+        "Elon Musk", "Jeff Bezos", "Mark Zuckerberg", "Steve Jobs", "Bill Gates",
+    ],
+    "🎬 Películas & Series": [
+        # Películas clásicas
+        "El Padrino", "Titanic", "Schindler's List", "Pulp Fiction", "Forrest Gump",
+        "El Rey León", "Matrix", "Gladiador", "Interstellar", "Inception",
+        "El Señor de los Anillos", "Star Wars", "Indiana Jones", "Jurassic Park", "Alien",
+        "Terminator", "RoboCop", "Blade Runner", "2001 Odisea en el espacio", "Psicosis",
+
+        # Películas modernas
+        "Avatar", "Avengers Endgame", "Spider-Man", "Batman", "Superman",
+        "Black Panther", "Iron Man", "Doctor Strange", "Joker", "Oppenheimer",
+        "Barbie", "Top Gun", "John Wick", "Everything Everywhere", "Get Out",
+
+        # Series icónicas
+        "Breaking Bad", "Game of Thrones", "The Wire", "Los Soprano", "The Office",
+        "Friends", "Seinfeld", "Lost", "24", "House of Cards",
+        "Stranger Things", "Black Mirror", "Peaky Blinders", "Narcos", "Dexter",
+        "The Crown", "Chernobyl", "Squid Game", "Dark", "Severance",
+
+        # Animadas
+        "Los Simpsons", "South Park", "Futurama", "Rick y Morty", "Bob's Burgers",
+        "Avatar La Leyenda de Aang", "Arcane", "Bojack Horseman", "Gravity Falls", "Steven Universe",
+
+        # Personajes icónicos
+        "Walter White", "Tony Soprano", "Daenerys Targaryen", "Jon Snow", "Tyrion Lannister",
+        "Hannibal Lecter", "James Bond", "Indiana Jones", "Ellen Ripley", "El Guasón",
+    ],
+    "💼 Profesiones": [
+        # Salud
+        "Médico", "Enfermero", "Cirujano", "Psicólogo", "Dentista",
+        "Veterinario", "Farmacéutico", "Fisioterapeuta", "Paramédico", "Nutricionista",
+
+        # Tecnología
+        "Programador", "Diseñador web", "Ingeniero de software", "Hacker ético", "Analista de datos",
+        "Inteligencia artificial", "Administrador de redes", "Desarrollador móvil", "DevOps", "CTO",
+
+        # Arte y entretenimiento
+        "Actor", "Director de cine", "Músico", "Fotógrafo", "Ilustrador",
+        "Escritor", "Periodista", "Diseñador gráfico", "Animador", "Productor musical",
+
+        # Educación y ciencia
+        "Maestro", "Profesor universitario", "Científico", "Arqueólogo", "Astrónomo",
+        "Biólogo marino", "Geólogo", "Antropólogo", "Historiador", "Filósofo",
+
+        # Servicios y oficios
+        "Chef", "Bombero", "Policía", "Abogado", "Juez",
+        "Arquitecto", "Piloto", "Astronauta", "Detective", "Diplomático",
+        "Mecánico", "Electricista", "Carpintero", "Plomero", "Soldador",
+
+        # Deportes y aventura
+        "Futbolista", "Atleta olímpico", "Entrenador personal", "Árbitro", "Escalador profesional",
+        "Buzo", "Piloto de carreras", "Jinete", "Surfista profesional", "Boxeador",
+    ],
 }
 
 
