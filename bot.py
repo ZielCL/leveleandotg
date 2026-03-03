@@ -967,16 +967,13 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     random.shuffle(orden)
     turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
 
-    num_impostores_vivos = sum(1 for v in vivos_ids if v in impostor_ids_set)
-    num_inocentes_vivos = len(vivos_ids) - num_impostores_vivos
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
 
     await message.reply_text(
         f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
-        f"👥 Jugadores vivos: *{len(vivos)}* "
-        f"\\({num_impostores_vivos} impostor\\(es\\) y {num_inocentes_vivos} inocente\\(s\\)\\)\n\n"
+        f"👥 Jugadores vivos: *{len(vivos)}*\n\n"
         f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra\\.\n"
         f"Cuando terminen, el creador usa /votar 🗳️",
