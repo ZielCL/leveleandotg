@@ -6,6 +6,7 @@ Juego donde todos reciben la misma palabra excepto el impostor.
 import logging
 import random
 import sqlite3
+import anthropic
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
@@ -25,6 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Palabras por categoría ─────────────────────────────────────
+CATEGORIAS = {
     "🐾 Animales": [
         # Mamíferos salvajes
         "León", "Tigre", "Leopardo", "Guepardo", "Jaguar",
@@ -337,6 +339,32 @@ logger = logging.getLogger(__name__)
     ],
 }
 
+
+ANTHROPIC_CLIENT = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+def generar_pistas(palabra: str, categoria: str) -> str:
+    try:
+        response = ANTHROPIC_CLIENT.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Genera exactamente 2 pistas para describir '{palabra}' (categoría: {categoria}) "
+                    f"en el juego del impostor. Las pistas deben:\n"
+                    f"- Ayudar a describir la palabra SIN decirla directamente ni usar palabras muy obvias\n"
+                    f"- Ser cortas, de máximo 10 palabras cada una\n"
+                    f"- Estar numeradas como 1. y 2.\n"
+                    f"Responde SOLO con las 2 pistas, sin explicaciones."
+                )
+            }]
+        )
+        return response.content[0].text.strip()
+    except Exception:
+        return "1\\. Piensa en sus características principales\n2\\. Recuerda dónde o cómo se usa"
+
+
+
 # ── Base de datos ──────────────────────────────────────────────
 def init_db():
     conn = sqlite3.connect("impostor.db")
@@ -555,6 +583,10 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2"
     )
 
+    # Generar pistas con IA (una sola llamada, se reutilizan para todos)
+    pistas_raw = generar_pistas(palabra, categoria)
+    pistas = esc(pistas_raw)
+
     fallidos = []
     for uid, uname, _ in jugadores:
         try:
@@ -569,7 +601,8 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     f"🔑 Tu palabra secreta es:\n\n"
                     f"✨ *{esc(palabra)}* ✨\n\n"
                     f"Categoría: *{esc(categoria)}*\n\n"
-                    "Da pistas sin decirla directamente\\. ¡Encuentra al impostor\\! 🕵️"
+                    f"💡 *Cómo puedes describirla:*\n{pistas}\n\n"
+                    "_Da pistas sin decir la palabra directamente\\. ¡Encuentra al impostor\\!_ 🕵️"
                 )
             await ctx.bot.send_message(uid, msg, parse_mode="MarkdownV2")
         except Exception:
