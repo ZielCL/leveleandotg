@@ -431,7 +431,7 @@ def get_chat_key(update):
         thread_id = update.effective_message.message_thread_id
         return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
     
-    return str(chat_id))
+    return str(chat_id)
 
 def get_chat_key_from_ids(chat_id, thread_id):
     return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
