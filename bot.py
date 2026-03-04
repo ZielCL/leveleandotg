@@ -485,6 +485,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "`/votar` — Abrir votación \\(solo el creador\\)\n"
         "`/comojugar` — Cómo se juega\n"
         "`/puntaje` — Ver marcador\n"
+        "`/resetimpostor` — Resetear puntajes\n"
         "`/cancelar` — Cancelar partida",
         parse_mode="MarkdownV2"
     )
@@ -538,6 +539,7 @@ async def cmd_como_jugar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "`/unirse` — Unirse a la partida\n"
         "`/votar` — Abrir votación \\(creador\\)\n"
         "`/puntaje` — Ver marcador\n"
+        "`/resetimpostor` — Resetear puntajes\n"
         "`/cancelar` — Cancelar partida",
         parse_mode="MarkdownV2"
     )
@@ -1259,8 +1261,7 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     marcador = get_marcador(chat_key)
-    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in marcador]
-    tabla = "\n".join(lineas)
+    tabla = formatear_tabla(marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
     await message.reply_text(
@@ -1291,8 +1292,7 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     marcador = get_marcador(chat_key)
-    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in marcador]
-    tabla = "\n".join(lineas)
+    tabla = formatear_tabla(marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
     if razon == "supervivencia":
@@ -1313,6 +1313,28 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     )
 
 
+def formatear_tabla(jugadores):
+    """jugadores: [(user_id, username, victorias, derrotas), ...]
+    Devuelve string con tabla monoespaciada lista para MarkdownV2 (dentro de bloque código)."""
+    filas = []
+    for j in jugadores:
+        nombre_j = j[1][:14]  # máx 14 chars para no romper el ancho
+        v = j[2]
+        d = j[3]
+        balance = v - d
+        bal_str = f"+{balance}" if balance > 0 else str(balance)
+        filas.append((nombre_j, v, d, bal_str))
+
+    # Anchos de columna
+    max_nombre = max(len(f[0]) for f in filas)
+    encabezado = f"{'Jugador':<{max_nombre}}  V    D   Bal"
+    separador  = "─" * len(encabezado)
+    lineas = [encabezado, separador]
+    for nombre_j, v, d, bal in filas:
+        lineas.append(f"{nombre_j:<{max_nombre}}  {v:<4} {d:<4} {bal}")
+    return "```\n" + "\n".join(lineas) + "\n```"
+
+
 async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     jugadores = get_marcador_global(chat_key)
@@ -1324,11 +1346,38 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    lineas = [f"  • {esc(j[1])}: *{j[2]}V* \\- {j[3]}D" for j in jugadores]
-    tabla = "\n".join(lineas)
-
+    tabla = formatear_tabla(jugadores)
     await update.message.reply_text(
         f"🏆 *Marcador del grupo:*\n\n{tabla}",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def cmd_resetimpostor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+    chat = update.effective_chat
+
+    # Verificar que el usuario es admin del grupo
+    try:
+        member = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    if not es_admin:
+        await update.message.reply_text("⚠️ Solo los administradores del grupo pueden resetear los puntajes.")
+        return
+
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET victorias=0, derrotas=0 WHERE chat_key=?",
+            (chat_key,)
+        )
+
+    await update.message.reply_text(
+        "🔄 *Puntajes reseteados\\.*\n\n"
+        "Todas las victorias y derrotas vuelven a cero\\. ¡A empezar de nuevo\\! 🎮",
         parse_mode="MarkdownV2"
     )
 
@@ -1373,6 +1422,7 @@ def main():
     app.add_handler(CommandHandler("puntaje",       cmd_puntaje))
     app.add_handler(CommandHandler("cancelar",      cmd_cancelar))
     app.add_handler(CommandHandler("comojugar",     cmd_como_jugar))
+    app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
 
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
