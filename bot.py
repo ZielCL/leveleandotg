@@ -722,7 +722,6 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             + "\n_Deben iniciar conversación con el bot primero_"
         )
 
-    keyboard_votar = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
     await ctx.bot.send_message(
         chat_id,
         f"🎮 *¡La partida comienza\\!*\n\n"
@@ -1047,7 +1046,6 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
 
-    keyboard = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
     await message.reply_text(
         f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
         f"👥 Jugadores vivos: *{len(vivos)}* "
