@@ -307,6 +307,8 @@ def generar_pistas(palabra: str, categoria: str) -> str:
 
 
 # ── Base de datos ──────────────────────────────────────────────
+DB_PATH = "/data/impostor.db"
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -348,8 +350,6 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-
-DB_PATH = "/data/impostor.db"
 
 def get_conn():
     return sqlite3.connect(DB_PATH)
