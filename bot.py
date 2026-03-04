@@ -1060,7 +1060,6 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
 
     await message.reply_text(
         f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
-        f"👥 Jugadores vivos: *{len(vivos)}* "
         f"👥 Jugadores vivos: *{len(vivos)}*\n\n"
         f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra\\.\n"
