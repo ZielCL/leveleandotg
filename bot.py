@@ -113,7 +113,7 @@ CATEGORIAS = {
         "Australia", "Nueva Zelanda",
         "Israel", "Irán", "Iraq", "Arabia Saudita",
     ],
-    "🎌 Anime": [
+    "🎌 Anime (personajes/series)": [
         "Goku", "Naruto", "Luffy", "Ichigo", "Eren Jaeger",
         "Levi Ackerman", "Edward Elric", "Spike Spiegel", "Light Yagami", "L Lawliet",
         "Sailor Moon", "Sakura Kinomoto", "Asuka Langley", "Rei Ayanami", "Mikasa Ackerman",
@@ -149,7 +149,7 @@ CATEGORIAS = {
         "Federico Valverde", "Rafael Leão", "Victor Osimhen", "Mohamed Salah", "Sadio Mané",
         "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
     ],
-    "🎤 K-Pop": [
+    "🎤 K-Pop (idols/grupos": [
         "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
         "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
         "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
