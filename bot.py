@@ -77,20 +77,20 @@ CATEGORIAS = {
         "Tijeras", "Candado", "Lupa", "Brújula", "Termómetro",
         "Reloj", "Cuaderno", "Mesa", "Silla", "Lámpara",
         "Almohada", "Manta", "Cortina", "Jabonera", "Tapete",
-        "Florero", "Portarretratos", "Cesto de ropa", "Tabla de planchar", "Escoba",
+        "Florero", "Alfombra", "Enchufe", "Pala", "Escoba",
         "Sartén", "Olla", "Cuchillo", "Tenedor", "Cuchara",
-        "Rallador", "Abrebotellas", "Corcho", "Delantal", "Batidora",
+        "Rallador", "Destapador", "Corcho", "Delantal", "Batidora",
         "Tostadora", "Microondas", "Mortero", "Pinzas de cocina", "Mandolina",
         "Calculadora", "Maletín", "Destornillador", "Grapadora", "Regla",
         "Sacapuntas", "Borrador", "Clip", "Carpeta", "Sello",
-        "Archivador", "Pizarrón", "Rotulador", "Compás", "Resaltador",
+        "Archivador", "Pizarrón", "Rotulador", "Compás", "Ventilador",
         "Billetera", "Llavero", "Pañuelo", "Agenda",
-        "Auriculares", "Cargador", "Termo", "Cantimplora", "Linterna",
-        "Martillo", "Alicates", "Cinta métrica", "Nivel", "Sierra",
+        "Audifonos", "Cargador", "Termo", "Cantimplora", "Linterna",
+        "Martillo", "Alicate", "Confort", "Nivel", "Sierra",
         "Taladro", "Llave inglesa", "Pincel", "Rodillo", "Escalera",
     ],
     "🎨 Colores": [
-        "Turquesa", "Magenta", "Escarlata", "Índigo", "Negro",
+        "Turquesa", "Magenta", "Escarlata", "Cafe", "Negro",
         "Lavanda", "Carmesí", "Rosado", "Marfil", "Rojo",
         "Amarillo", "Violeta", "Dorado", "Plateado", "Coral", "Azul", "Blanco",
     ],
@@ -105,7 +105,7 @@ CATEGORIAS = {
         "Guatemala", "Honduras", "Jamaica", "República Dominicana", "Haití",
         "Japón", "Tailandia", "India", "China", "Corea del Sur", "Corea del Norte",
         "Vietnam", "Indonesia", "Filipinas", "Malasia", "Nepal",
-        "Pakistán", "Bangladés", "Sri Lanka", "Myanmar", "Camboya",
+        "Pakistán", "Bangladés", "Camboya",
         "Mongolia", "Kazajistán", "Uzbekistán", "Georgia", "Armenia",
         "Marruecos", "Sudáfrica", "Egipto",
         "Tanzania", "Ghana", "Senegal", "Nigeria", "Túnez",
@@ -250,7 +250,7 @@ CATEGORIAS = {
     "💼 Profesiones": [
         "Médico", "Enfermero", "Cirujano", "Psicólogo", "Dentista",
         "Veterinario", "Farmacéutico", "Fisioterapeuta", "Paramédico", "Nutricionista",
-        "Programador", "Diseñador web", "Ingeniero de software", "Hacker ético", "Analista de datos",
+        "Programador", "Diseñador web", "Panadero", "Taxista", "Analista de datos",
         "Administrador de redes", "Desarrollador móvil", "DevOps",
         "Actor", "Director de cine", "Músico", "Fotógrafo", "Ilustrador",
         "Escritor", "Periodista", "Diseñador gráfico", "Animador", "Productor musical",
@@ -267,7 +267,7 @@ CATEGORIAS = {
         "Lara Croft", "Nathan Drake", "Cloud Strife", "Solid Snake", "Samus Aran",
         "Sonic", "Pikachu", "Crash Bandicoot", "Spyro", "Mega Man",
         "Dante", "Ryu", "Sub-Zero", "Scorpion", "Kazuya Mishima",
-        "Arthur Morgan", "Joel", "Ellie", "Aloy",
+        "Arthur Morgan", "Joel", "Ellie", "Minecraft",
         "Minecraft", "Fortnite", "League of Legends", "Counter-Strike", "Valorant",
         "Grand Theft Auto", "Red Dead Redemption", "The Last of Us", "God of War", "Zelda",
         "Dark Souls", "Elden Ring", "Cyberpunk 2077", "The Witcher", "Skyrim",
@@ -713,7 +713,9 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.bot_data[f"turno_{chat_key}"] = {
         "orden": [j[0] for j in orden],
         "index": 0,
-        "ya_dieron_pista": set()
+        "ya_dieron_pista": set(),
+        "ronda_pistas": 1,
+        "jugadores_iniciales": len(jugadores)
     }
 
     aviso = ""
@@ -1042,7 +1044,9 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     ctx.bot_data[f"turno_{chat_key}"] = {
         "orden": [j[0] for j in orden],
         "index": 0,
-        "ya_dieron_pista": set()
+        "ya_dieron_pista": set(),
+        "ronda_pistas": 2,
+        "jugadores_iniciales": len(jugadores)
     }
 
     with get_conn() as conn:
@@ -1092,6 +1096,43 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
 
     if siguiente_index >= len(orden):
+        ronda_pistas = turno_data.get("ronda_pistas", 1)
+        jugadores_iniciales = turno_data.get("jugadores_iniciales", len(orden))
+
+        # Con 3 jugadores iniciales, la primera ronda no habilita votación
+        if jugadores_iniciales == 3 and ronda_pistas == 1:
+            ctx.bot_data.pop(f"turno_{chat_key}", None)
+            jugadores = get_jugadores_activos(chat_key)
+            vivos_ids = get_vivos(chat_key)
+            vivos = [j for j in jugadores if j[0] in vivos_ids]
+            nuevo_orden = list(vivos)
+            random.shuffle(nuevo_orden)
+            turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(nuevo_orden))
+
+            ctx.bot_data[f"turno_{chat_key}"] = {
+                "orden": [j[0] for j in nuevo_orden],
+                "index": 0,
+                "ya_dieron_pista": set(),
+                "ronda_pistas": 2,
+                "jugadores_iniciales": jugadores_iniciales
+            }
+
+            await ctx.bot.send_message(
+                chat_id,
+                f"🔄 *¡Segunda ronda de pistas\\!*\n\n"
+                f"Ahora sí, después de esta ronda se abrirá la votación\\.\n\n"
+                f"*🎲 Nuevo orden:*\n{turno_lista}",
+                parse_mode="MarkdownV2"
+            )
+            primer = nuevo_orden[0]
+            await ctx.bot.send_message(
+                chat_id,
+                f"👆 *¡Es el turno de* [{esc(primer[1])}](tg://user?id={primer[0]})\\!\n"
+                f"Escribe tu pista en el chat\\.",
+                parse_mode="MarkdownV2"
+            )
+            return
+
         ctx.bot_data.pop(f"turno_{chat_key}", None)
         keyboard_votar = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
         await ctx.bot.send_message(
