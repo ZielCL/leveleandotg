@@ -73,24 +73,24 @@ CATEGORIAS = {
         "Tibet", "Laponia", "Zanzibar", "Maasai Mara", "Borneo",
     ],
     "📦 Objetos cotidianos": [
-        "Paraguas", "Espejo", "Percha", "Colador", "Embudo",
+        "Paraguas", "Espejo", "Gancho", "Colador", "Embudo",
         "Tijeras", "Candado", "Lupa", "Brújula", "Termómetro",
         "Reloj", "Cuaderno", "Mesa", "Silla", "Lámpara",
-        "Almohada", "Manta", "Cortina", "Jabonera", "Tapete",
-        "Florero", "Alfombra", "Enchufe", "Pala", "Escoba",
+        "Almohada", "Cobija", "Cortina", "Jabonera", "Tapete",
+        "Florero", "Portarretrato", "Canasto", "Escoba", "Trapeador",
         "Sartén", "Olla", "Cuchillo", "Tenedor", "Cuchara",
-        "Rallador", "Destapador", "Corcho", "Delantal", "Batidora",
-        "Tostadora", "Microondas", "Mortero", "Pinzas de cocina", "Mandolina",
-        "Calculadora", "Maletín", "Destornillador", "Grapadora", "Regla",
+        "Rallador", "Destapador", "Corcho", "Delantal", "Licuadora",
+        "Tostadora", "Microondas", "Mortero", "Espátula", "Batidora",
+        "Calculadora", "Maletín", "Destornillador", "Engrapadora", "Regla",
         "Sacapuntas", "Borrador", "Clip", "Carpeta", "Sello",
-        "Archivador", "Pizarrón", "Rotulador", "Compás", "Ventilador",
+        "Archivador", "Pizarrón", "Marcador", "Compás", "Resaltador",
         "Billetera", "Llavero", "Pañuelo", "Agenda",
-        "Audifonos", "Cargador", "Termo", "Cantimplora", "Linterna",
-        "Martillo", "Alicate", "Confort", "Nivel", "Sierra",
-        "Taladro", "Llave inglesa", "Pincel", "Rodillo", "Escalera",
+        "Audífonos", "Cargador", "Termo", "Linterna", "Veladora",
+        "Martillo", "Alicate", "Taladro", "Serrucho", "Escalera",
+        "Pincel", "Rodillo", "Cinta", "Llave", "Nivel",
     ],
     "🎨 Colores": [
-        "Turquesa", "Magenta", "Escarlata", "Cafe", "Negro",
+        "Turquesa", "Magenta", "Escarlata", "Índigo", "Negro",
         "Lavanda", "Carmesí", "Rosado", "Marfil", "Rojo",
         "Amarillo", "Violeta", "Dorado", "Plateado", "Coral", "Azul", "Blanco",
     ],
@@ -105,7 +105,7 @@ CATEGORIAS = {
         "Guatemala", "Honduras", "Jamaica", "República Dominicana", "Haití",
         "Japón", "Tailandia", "India", "China", "Corea del Sur", "Corea del Norte",
         "Vietnam", "Indonesia", "Filipinas", "Malasia", "Nepal",
-        "Pakistán", "Bangladés", "Camboya",
+        "Pakistán", "Bangladés", "Sri Lanka", "Myanmar", "Camboya",
         "Mongolia", "Kazajistán", "Uzbekistán", "Georgia", "Armenia",
         "Marruecos", "Sudáfrica", "Egipto",
         "Tanzania", "Ghana", "Senegal", "Nigeria", "Túnez",
@@ -250,7 +250,7 @@ CATEGORIAS = {
     "💼 Profesiones": [
         "Médico", "Enfermero", "Cirujano", "Psicólogo", "Dentista",
         "Veterinario", "Farmacéutico", "Fisioterapeuta", "Paramédico", "Nutricionista",
-        "Programador", "Diseñador web", "Panadero", "Taxista", "Analista de datos",
+        "Programador", "Diseñador web", "Ingeniero de software", "Hacker ético", "Analista de datos",
         "Administrador de redes", "Desarrollador móvil", "DevOps",
         "Actor", "Director de cine", "Músico", "Fotógrafo", "Ilustrador",
         "Escritor", "Periodista", "Diseñador gráfico", "Animador", "Productor musical",
@@ -267,7 +267,7 @@ CATEGORIAS = {
         "Lara Croft", "Nathan Drake", "Cloud Strife", "Solid Snake", "Samus Aran",
         "Sonic", "Pikachu", "Crash Bandicoot", "Spyro", "Mega Man",
         "Dante", "Ryu", "Sub-Zero", "Scorpion", "Kazuya Mishima",
-        "Arthur Morgan", "Joel", "Ellie", "Minecraft",
+        "Arthur Morgan", "Joel", "Ellie", "Aloy",
         "Minecraft", "Fortnite", "League of Legends", "Counter-Strike", "Valorant",
         "Grand Theft Auto", "Red Dead Redemption", "The Last of Us", "God of War", "Zelda",
         "Dark Souls", "Elden Ring", "Cyberpunk 2077", "The Witcher", "Skyrim",
@@ -726,13 +726,19 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             + "\n_Deben iniciar conversación con el bot primero_"
         )
 
+    aviso_rondas = (
+        "Esta partida se juega en *2 rondas* de pistas antes de votar\\. ¡Atención\\! 👀"
+        if len(jugadores) == 3 else
+        "Cuando todos hayan dado su pista, el creador abre la votación 🗳️"
+    )
+
     await ctx.bot.send_message(
         chat_id,
         f"🎮 *¡La partida comienza\\!*\n\n"
         f"{texto_cat_grupo}\n\n"
         f"*🎲 Orden de pistas \\(elegido al azar\\):*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
-        f"Cuando todos hayan dado su pista, el creador abre la votación 🗳️"
+        f"{aviso_rondas}"
         + aviso,
         parse_mode="MarkdownV2"
     )
