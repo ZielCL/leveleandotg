@@ -284,6 +284,16 @@ CATEGORIAS = {
 
 ANTHROPIC_CLIENT = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
+def normalizar(texto: str) -> str:
+    """Elimina tildes, diéresis y convierte a minúsculas para comparación flexible."""
+    import unicodedata
+    texto = texto.lower().strip()
+    # Descomponer caracteres y eliminar marcas de acento
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    return texto
+
+
 def generar_pistas(palabra: str, categoria: str) -> str:
     try:
         response = ANTHROPIC_CLIENT.messages.create(
@@ -1188,7 +1198,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         ctx.bot_data.pop(f"adivinando_{chat_key}", None)
 
-        if texto.strip().lower() == palabra.lower():
+        if normalizar(texto) == normalizar(palabra):
             await update.message.reply_text(
                 f"🎯 *¡{esc(nombre(user))} adivinó la palabra\\!*\n\n"
                 f"La palabra era *{esc(palabra)}*\\. ¡Los impostores ganan\\! 🕵️",
