@@ -149,7 +149,7 @@ CATEGORIAS = {
         "Federico Valverde", "Rafael Leão", "Victor Osimhen", "Mohamed Salah", "Sadio Mané",
         "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
     ],
-    "🎤 K-Pop (idols/grupos": [
+    "🎤 K-Pop (idols/grupos)": [
         "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
         "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
         "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
@@ -491,9 +491,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• El grupo vota para eliminar jugadores por rondas\n\n"
         "*Comandos:*\n"
         "`/jugarimpostor` — Crear una partida\n"
+        "`/unirse` — Unirse a la partida\n"
         "`/votar` — Abrir votación \\(solo el creador\\)\n"
         "`/comojugar` — Cómo se juega\n"
         "`/puntaje` — Ver marcador\n"
+        "`/resetimpostor` — Resetear puntajes\n"
         "`/cancelar` — Cancelar partida",
         parse_mode="MarkdownV2"
     )
@@ -509,7 +511,7 @@ async def cmd_como_jugar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━━━\n"
         "*🎮 Pasos del juego*\n\n"
         "*0\\. Iniciar el bot en privado*\n"
-        "Debes ingresar a @impostortg_bot y apretar el boton de la parte inferior que dice `Iniciar`, luego en comandos usa `/comojugar`para aprender sobre el bot\\.\n\n"
+        "Debes ingresar a @impostortg\\_bot y apretar el botón de la parte inferior que dice `Iniciar`, luego en comandos usa `/comojugar` para aprender sobre el bot\\.\n\n"
         "*1\\. Crear la partida*\n"
         "Alguien usa `/jugarimpostor` y los demás se unen con `/unirse` o el botón\\.\n\n"
         "*2\\. Iniciar*\n"
@@ -619,7 +621,7 @@ async def _unirse(chat_key, user, reply_fn):
     await reply_fn(
         f"✅ *{esc(nombre(user))} se unió\\!*\n\n"
         f"*Jugadores* \\({len(activos)}\\):\n{lista}\n\n"
-        + ("_El creador puede iniciar cuando quiera\\._" if len(activos) >= 3 else f"_Faltan {3 - len(activos)} jugadores más para poder iniciar\\._"),
+        + ("_El creador puede iniciar cuando quiera\\._" if len(activos) >= 3 else f"Faltan *{3 - len(activos)}* jugadores más para poder iniciar\\."),
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
