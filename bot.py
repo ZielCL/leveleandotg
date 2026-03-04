@@ -491,11 +491,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• El grupo vota para eliminar jugadores por rondas\n\n"
         "*Comandos:*\n"
         "`/jugarimpostor` — Crear una partida\n"
-        "`/unirse` — Unirse a la partida\n"
         "`/votar` — Abrir votación \\(solo el creador\\)\n"
         "`/comojugar` — Cómo se juega\n"
         "`/puntaje` — Ver marcador\n"
-        "`/resetimpostor` — Resetear puntajes\n"
         "`/cancelar` — Cancelar partida",
         parse_mode="MarkdownV2"
     )
@@ -510,6 +508,8 @@ async def cmd_como_jugar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Los impostores deben pasar desapercibidos o adivinar la palabra secreta\\.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "*🎮 Pasos del juego*\n\n"
+        "*0\\. Iniciar el bot en privado*\n"
+        "Debes ingresar a @impostortg_bot y apretar el boton de la parte inferior que dice `Iniciar`, luego en comandos usa `/comojugar`para aprender sobre el bot\\.\n\n"
         "*1\\. Crear la partida*\n"
         "Alguien usa `/jugarimpostor` y los demás se unen con `/unirse` o el botón\\.\n\n"
         "*2\\. Iniciar*\n"
