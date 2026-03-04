@@ -731,8 +731,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Cada uno da *una pista* sobre la palabra sin decirla directamente\\.\n"
         f"Cuando todos hayan dado su pista, el creador abre la votación 🗳️"
         + aviso,
-        parse_mode="MarkdownV2",
-        reply_markup=InlineKeyboardMarkup(keyboard_votar)
+        parse_mode="MarkdownV2"
     )
 
     primer = orden[0]
@@ -1056,8 +1055,7 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
         f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra\\.\n"
         f"Cuando terminen, el creador abre la votación 🗳️",
-        parse_mode="MarkdownV2",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        parse_mode="MarkdownV2"
     )
 
     primer = orden[0]
@@ -1095,11 +1093,13 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if siguiente_index >= len(orden):
         ctx.bot_data.pop(f"turno_{chat_key}", None)
+        keyboard_votar = [[InlineKeyboardButton("🗳️ ¡Abrir votación!", callback_data="abrir_votar")]]
         await ctx.bot.send_message(
             chat_id,
             "✅ *¡Todos dieron su pista\\!*\n\n"
             "El creador puede abrir la votación 🗳️",
-            parse_mode="MarkdownV2"
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard_votar)
         )
         return
 
