@@ -385,7 +385,7 @@ def get_marcador(chat_key):
             """SELECT j.user_id, j.username, j.victorias, j.derrotas
                FROM jugadores j
                INNER JOIN partida_jugadores pj ON j.chat_key = pj.chat_key AND j.user_id = pj.user_id
-               WHERE j.chat_key=? ORDER BY j.victorias DESC""",
+               WHERE j.chat_key=? ORDER BY (j.victorias - j.derrotas) DESC, j.victorias DESC""",
             (chat_key,)
         ).fetchall()
 
@@ -393,7 +393,7 @@ def get_marcador_global(chat_key):
     """Marcador de todos los que han jugado alguna vez"""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_key=? ORDER BY victorias DESC",
+            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_key=? ORDER BY (victorias - derrotas) DESC, victorias DESC",
             (chat_key,)
         ).fetchall()
 
@@ -1335,11 +1335,11 @@ def formatear_tabla(jugadores):
 
     # Anchos de columna
     max_nombre = max(len(f[0]) for f in filas)
-    encabezado = f"{'Jugador':<{max_nombre}}  V    D   Bal"
+    encabezado = f"#   {'Jugador':<{max_nombre}}  V    D   Bal"
     separador  = "─" * len(encabezado)
     lineas = [encabezado, separador]
-    for nombre_j, v, d, bal in filas:
-        lineas.append(f"{nombre_j:<{max_nombre}}  {v:<4} {d:<4} {bal}")
+    for i, (nombre_j, v, d, bal) in enumerate(filas, 1):
+        lineas.append(f"{i:<3} {nombre_j:<{max_nombre}}  {v:<4} {d:<4} {bal}")
     return "```\n" + "\n".join(lineas) + "\n```"
 
 
