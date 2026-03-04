@@ -308,7 +308,7 @@ def generar_pistas(palabra: str, categoria: str) -> str:
 
 # ── Base de datos ──────────────────────────────────────────────
 def init_db():
-    conn = sqlite3.connect("impostor.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""
         CREATE TABLE IF NOT EXISTS partidas (
@@ -349,8 +349,10 @@ def init_db():
     conn.commit()
     conn.close()
 
+DB_PATH = "/data/impostor.db"
+
 def get_conn():
-    return sqlite3.connect("impostor.db")
+    return sqlite3.connect(DB_PATH)
 
 # partida: (chat_key, chat_id, estado, categoria, palabra, impostor_ids, vivos, ronda, creador_id)
 #           [0]       [1]      [2]     [3]        [4]     [5]            [6]    [7]    [8]
