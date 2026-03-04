@@ -1028,7 +1028,8 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message)
         return
 
-    if len(vivos_restantes_ids) <= 2:
+    inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+    if len(inocentes_restantes) <= 1:
         await _fin_impostores_ganan(
             chat_key, ctx, partida, jugadores, impostores,
             None, palabra, categoria, detalle_votos, message, razon="supervivencia"
@@ -1045,9 +1046,6 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     random.shuffle(orden)
     turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
 
-    # ── Calcular conteos ANTES de usarlos ──
-    num_impostores_vivos = sum(1 for v in vivos_ids if v in impostor_ids_set)
-    num_inocentes_vivos = len(vivos_ids) - num_impostores_vivos
 
     ctx.bot_data[f"turno_{chat_key}"] = {
         "orden": [j[0] for j in orden],
@@ -1063,7 +1061,7 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     await message.reply_text(
         f"🔄 *¡Nueva ronda de pistas\\!*\n\n"
         f"👥 Jugadores vivos: *{len(vivos)}* "
-        f"\\({num_impostores_vivos} impostor\\(es\\) y {num_inocentes_vivos} inocente\\(s\\)\\)\n\n"
+        f"👥 Jugadores vivos: *{len(vivos)}*\n\n"
         f"*🎲 Nuevo orden de pistas:*\n{turno_lista}\n\n"
         f"Cada uno da *una pista* sobre la palabra\\.\n"
         f"Cuando terminen, el creador abre la votación 🗳️",
@@ -1210,7 +1208,8 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if not impostores_vivos:
                 await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, update.message)
                 return
-            if len(vivos_restantes_ids) <= 2:
+            inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+            if len(inocentes_restantes) <= 1:
                 await _fin_impostores_ganan(
                     chat_key, ctx, partida, jugadores, impostores,
                     None, palabra, categoria, detalle_votos, update.message, razon="supervivencia"
