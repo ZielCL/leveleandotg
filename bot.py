@@ -900,6 +900,16 @@ def get_chat_key(update):
         return f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
     return str(chat_id)
 
+def get_thread_id(chat_key: str):
+    """Extrae el thread_id del chat_key si existe (formato 'chat_id_thread_id')."""
+    parts = chat_key.split("_")
+    if len(parts) == 2:
+        try:
+            return int(parts[1])
+        except ValueError:
+            pass
+    return None
+
 def calcular_num_impostores(num_jugadores):
     if num_jugadores <= 4:
         return 1
@@ -1332,19 +1342,22 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else t(chat_key, "aviso_votar")
     )
 
+    thread_id = get_thread_id(chat_key)
     await ctx.bot.send_message(
         chat_id,
         t(chat_key, "partida_comienza").format(
             cat=texto_cat_grupo, orden=turno_lista, aviso_rondas=aviso_rondas
         ) + aviso,
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
     )
 
     primer = orden[0]
     await ctx.bot.send_message(
         chat_id,
         t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]),
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
     )
 
 
@@ -1675,6 +1688,7 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     siguiente_index = index + 1
     turno_data["index"] = siguiente_index
     chat_id = query.message.chat.id
+    thread_id = get_thread_id(chat_key)
 
     if siguiente_index >= len(orden):
         ronda_pistas = turno_data.get("ronda_pistas", 1)
@@ -1700,13 +1714,15 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(
                 chat_id,
                 t(chat_key, "segunda_ronda").format(orden=turno_lista),
-                parse_mode="MarkdownV2"
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
             )
             primer = nuevo_orden[0]
             await ctx.bot.send_message(
                 chat_id,
                 t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]),
-                parse_mode="MarkdownV2"
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
             )
             return
 
@@ -1715,6 +1731,7 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             chat_id,
             t(chat_key, "todos_dieron_pista"),
             parse_mode="MarkdownV2",
+            message_thread_id=thread_id,
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")
             ]])
@@ -1728,7 +1745,8 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await ctx.bot.send_message(
         chat_id,
         t(chat_key, "turno").format(nombre=esc(nombre_siguiente), uid=siguiente_id),
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
     )
 
 
@@ -1963,9 +1981,23 @@ async def error_handler(update, ctx):
         logger.error(f"Error: {error}")
 
 
+async def set_commands(app):
+    from telegram import BotCommand
+    await app.bot.set_my_commands([
+        BotCommand("playimpostor", "🎮 Create a new game"),
+        BotCommand("join",         "✋ Join the current game"),
+        BotCommand("vote",         "🗳️ Open voting (creator only)"),
+        BotCommand("howtoplay",    "📖 How to play"),
+        BotCommand("score",        "🏆 View scoreboard"),
+        BotCommand("language",     "🌐 Change language"),
+        BotCommand("resetimpostor","🔄 Reset scores (admins only)"),
+        BotCommand("cancel",       "❌ Cancel current game (creator only)"),
+    ])
+    logger.info("✅ Comandos registrados en Telegram.")
+
 def main():
     init_db()
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(set_commands).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("playimpostor", cmd_nueva))
