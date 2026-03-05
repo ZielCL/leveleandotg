@@ -1994,6 +1994,52 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(t(chat_key, "cancelado"), parse_mode="MarkdownV2")
 
 
+
+async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+    chat = update.effective_chat
+
+    # Solo admins/mods
+    try:
+        member = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    if not es_admin:
+        await update.message.reply_text("⚠️ Solo los administradores pueden usar este comando.")
+        return
+
+    # Obtener todos los usuarios registrados en el grupo
+    with get_conn() as conn:
+        miembros = conn.execute(
+            "SELECT user_id, username FROM jugadores WHERE chat_key=?",
+            (chat_key,)
+        ).fetchall()
+
+    if not miembros:
+        await update.message.reply_text("⚠️ No hay usuarios registrados en este grupo aún.")
+        return
+
+    # Obtener el mensaje personalizado (texto después del comando)
+    texto_extra = ""
+    if ctx.args:
+        texto_extra = " ".join(ctx.args)
+
+    # Construir menciones visibles por nombre
+    nombres_visibles = " · ".join(
+        "[" + uname + "](tg://user?id=" + str(uid) + ")"
+        for uid, uname in miembros
+    )
+
+    msg = "📢 " + nombres_visibles
+    if texto_extra:
+        msg += "\n\n" + texto_extra
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 async def error_handler(update, ctx):
     error = ctx.error
     if isinstance(error, Conflict):
@@ -2030,6 +2076,7 @@ def main():
     app.add_handler(CommandHandler("howtoplay",     cmd_como_jugar))
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
     app.add_handler(CommandHandler("language",        cmd_idioma))
+    app.add_handler(CommandHandler("all",               cmd_all))
 
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
