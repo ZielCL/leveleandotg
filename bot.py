@@ -104,7 +104,7 @@ TEXTOS = {
             "`/language` — Cambiar idioma\n"
             "`/cancel` — Cancelar partida"
         ),
-        "partida_activa":           "⚠️ Ya hay una partida activa. Usa /cancel primero.",
+        "bot_no_iniciado":          "⚠️ Debes iniciar el bot primero para recibir tu palabra secreta.\n\nAbre el chat privado con el bot, presiona INICIAR y luego vuelve aquí para unirte.",
         "btn_unirse":               "✋ Unirse a la partida",
         "nueva_partida":            "🎮 *{nombre} creó una nueva partida del juego Impostor\\!*\n\nPulsen el botón o usen /join para sumarse\\.\nCuando estén listos, el creador pulsa *¡Iniciar partida\\!*",
         "sin_partida":              "⚠️ No hay ninguna partida abierta. Usa /playimpostor para crear una.",
@@ -263,7 +263,7 @@ TEXTOS = {
             "`/language` — Change language\n"
             "`/cancel` — Cancel game"
         ),
-        "partida_activa":           "⚠️ There's already an active game. Use /cancel first.",
+        "bot_no_iniciado":          "⚠️ You need to start the bot first to receive your secret word.\n\nOpen the private chat with the bot, press START and then come back here to join.",
         "btn_unirse":               "✋ Join the game",
         "nueva_partida":            "🎮 *{nombre} created a new Impostor game\\!*\n\nPress the button or use /join to join\\.\nWhen ready, the creator presses *Start game\\!*",
         "sin_partida":              "⚠️ There's no open game. Use /playimpostor to create one.",
@@ -1187,13 +1187,30 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await _unirse(get_chat_key(update), update.effective_user, update.message.reply_text)
+    await _unirse(get_chat_key(update), update.effective_user, update.message.reply_text, ctx.bot)
 
 async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await _unirse(get_chat_key(update), update.effective_user, update.callback_query.message.reply_text)
+    query = update.callback_query
+    chat_key = get_chat_key(update)
+    user = update.effective_user
 
-async def _unirse(chat_key, user, reply_fn):
+    # Verificar que el bot esté iniciado intentando enviar un mensaje de prueba
+    try:
+        await ctx.bot.send_chat_action(user.id, "typing")
+    except Exception:
+        # No tiene el bot iniciado → alerta flotante con deep link
+        bot_username = (await ctx.bot.get_me()).username
+        await query.answer(
+            t(chat_key, "bot_no_iniciado"),
+            show_alert=True,
+            url=f"https://t.me/{bot_username}?start=join"
+        )
+        return
+
+    await query.answer()
+    await _unirse(chat_key, user, query.message.reply_text, ctx.bot)
+
+async def _unirse(chat_key, user, reply_fn, bot=None):
     partida = get_partida(chat_key)
     if not partida:
         await reply_fn(t(chat_key, "sin_partida"))
