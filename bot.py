@@ -1522,10 +1522,15 @@ async def btn_revoto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if len(empatados2) > 1:
             await query.message.reply_text(
                 t(chat_key, "segundo_empate"),
-                parse_mode="MarkdownV2",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")
-                ]])
+                parse_mode="MarkdownV2"
+            )
+            partida_fresca = get_partida(chat_key)
+            vivos_ids_actual = get_vivos(chat_key)
+            jugadores_frescos = get_jugadores_activos(chat_key)
+            impostor_ids_set2 = set(int(i) for i in partida_fresca[5].split(","))
+            await _nueva_ronda_pistas(
+                chat_key, ctx, jugadores_frescos, vivos_ids_actual,
+                impostor_ids_set2, partida_fresca[4], partida_fresca[3], query.message
             )
             return
 
