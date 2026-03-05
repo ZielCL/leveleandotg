@@ -41,14 +41,14 @@ TEXTOS = {
             "• Den pistas sin decirla directamente 🎭\n"
             "• El grupo vota para eliminar jugadores por rondas\n\n"
             "*Comandos:*\n"
-            "`/jugarimpostor` — Crear una partida\n"
-            "`/unirse` — Unirse a la partida\n"
-            "`/votar` — Abrir votación \\(solo el creador\\)\n"
-            "`/comojugar` — Cómo se juega\n"
-            "`/puntaje` — Ver marcador\n"
+            "`/playimpostor` — Crear una partida\n"
+            "`/join` — Unirse a la partida\n"
+            "`/vote` — Abrir votación \\(solo el creador\\)\n"
+            "`/howtoplay` — Cómo se juega\n"
+            "`/score` — Ver marcador\n"
             "`/resetimpostor` — Resetear puntajes\n"
-            "`/idioma` — Cambiar idioma\n"
-            "`/cancelar` — Cancelar partida"
+            "`/language` — Cambiar idioma\n"
+            "`/cancel` — Cancelar partida"
         ),
         # cmd_como_jugar
         "comojugar": (
@@ -60,9 +60,9 @@ TEXTOS = {
             "━━━━━━━━━━━━━━━━━━━━\n"
             "*🎮 Pasos del juego*\n\n"
             "*0\\. Iniciar el bot en privado*\n"
-            "Debes ingresar a @impostortg\\_bot y apretar el botón de la parte inferior que dice `Iniciar`, luego en comandos usa `/comojugar` para aprender sobre el bot\\.\n\n"
+            "Debes ingresar a @impostortg\\_bot y apretar el botón de la parte inferior que dice `Iniciar`, luego en comandos usa `/howtoplay` para aprender sobre el bot\\.\n\n"
             "*1\\. Crear la partida*\n"
-            "Alguien usa `/jugarimpostor` y los demás se unen con `/unirse` o el botón\\.\n\n"
+            "Alguien usa `/playimpostor` y los demás se unen con `/join` o el botón\\.\n\n"
             "*2\\. Iniciar*\n"
             "Con mínimo 3 jugadores, el creador elige una categoría y pulsa *¡Iniciar partida\\!*\n\n"
             "*3\\. Palabras secretas*\n"
@@ -96,18 +96,18 @@ TEXTOS = {
             "  • 7\\+ jugadores → 2 a 3 impostores \\(al azar\\)\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "*📌 Comandos*\n"
-            "`/jugarimpostor` — Crear partida\n"
-            "`/unirse` — Unirse a la partida\n"
-            "`/votar` — Abrir votación \\(creador\\)\n"
-            "`/puntaje` — Ver marcador\n"
+            "`/playimpostor` — Crear partida\n"
+            "`/join` — Unirse a la partida\n"
+            "`/vote` — Abrir votación \\(creador\\)\n"
+            "`/score` — Ver marcador\n"
             "`/resetimpostor` — Resetear puntajes\n"
-            "`/idioma` — Cambiar idioma\n"
-            "`/cancelar` — Cancelar partida"
+            "`/language` — Cambiar idioma\n"
+            "`/cancel` — Cancelar partida"
         ),
-        "partida_activa":           "⚠️ Ya hay una partida activa. Usa /cancelar primero.",
+        "partida_activa":           "⚠️ Ya hay una partida activa. Usa /cancel primero.",
         "btn_unirse":               "✋ Unirse a la partida",
-        "nueva_partida":            "🎮 *{nombre} creó una nueva partida del juego Impostor\\!*\n\nPulsen el botón o usen /unirse para sumarse\\.\nCuando estén listos, el creador pulsa *¡Iniciar partida\\!*",
-        "sin_partida":              "⚠️ No hay ninguna partida abierta. Usa /jugarimpostor para crear una.",
+        "nueva_partida":            "🎮 *{nombre} creó una nueva partida del juego Impostor\\!*\n\nPulsen el botón o usen /join para sumarse\\.\nCuando estén listos, el creador pulsa *¡Iniciar partida\\!*",
+        "sin_partida":              "⚠️ No hay ninguna partida abierta. Usa /playimpostor para crear una.",
         "partida_en_curso":         "⚠️ La partida ya está en curso, no puedes unirte ahora.",
         "ya_en_partida":            "⚠️ Ya estás en la partida.",
         "partida_llena":            "⚠️ La partida está llena \\(máximo {n} jugadores\\)\\.",
@@ -161,8 +161,8 @@ TEXTOS = {
         "segunda_ronda":            "🔄 *¡Segunda ronda de pistas\\!*\n\nAhora sí, después de esta ronda se abrirá la votación\\.\n\n*🎲 Nuevo orden:*\n{orden}",
         "todos_dieron_pista":       "✅ *¡Todos dieron su pista\\!*\n\nEl creador puede abrir la votación 🗳️",
         "nueva_ronda_pistas":       "🔄 *¡Nueva ronda de pistas\\!*\n\n👥 Jugadores vivos: *{n}*\n\n*🎲 Nuevo orden de pistas:*\n{orden}\n\nCada uno da *una pista* sobre la palabra\\.\nCuando terminen, el creador abre la votación 🗳️",
-        "grupo_gana":               "🎉 *¡El grupo ganó\\!*\n\nLos impostores eran: {impostores}\n¡Fueron eliminados sin adivinar la palabra\\!\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /jugarimpostor para otra ronda_",
-        "impostores_ganan":         "🕵️ *¡Los impostores ganaron\\!*\n\nEran: {impostores}\n{desc}\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /jugarimpostor para otra ronda_",
+        "grupo_gana":               "🎉 *¡El grupo ganó\\!*\n\nLos impostores eran: {impostores}\n¡Fueron eliminados sin adivinar la palabra\\!\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /playimpostor para otra ronda_",
+        "impostores_ganan":         "🕵️ *¡Los impostores ganaron\\!*\n\nEran: {impostores}\n{desc}\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /playimpostor para otra ronda_",
         "desc_supervivencia":       "Los impostores sobrevivieron hasta quedar solos con un inocente\\.",
         "desc_adivino":             "Un impostor adivinó la palabra correcta\\.",
         "desc_error_voto":          "Votaron incorrectamente por *{nombre}*\\.",
@@ -173,7 +173,7 @@ TEXTOS = {
         "reset_ok":                 "🔄 *Puntajes reseteados\\.*\n\nTodas las victorias y derrotas vuelven a cero\\. ¡A empezar de nuevo\\! 🎮",
         "sin_partida_activa":       "⚠️ No hay ninguna partida activa.",
         "solo_creador_cancelar":    "⚠️ Solo el creador puede cancelar la partida.",
-        "cancelado":                "❌ Partida cancelada\\. Usa /jugarimpostor para empezar otra\\.",
+        "cancelado":                "❌ Partida cancelada\\. Usa /playimpostor para empezar otra\\.",
         "idioma_actual":            "🌐 *Idioma actual: Español*\n\nElige un idioma:",
         "idioma_cambiado_es":       "✅ Idioma cambiado a *Español*\\.",
         "idioma_cambiado_en":       "✅ Language changed to *English*\\.",
@@ -200,14 +200,14 @@ TEXTOS = {
             "• Give clues without saying it directly 🎭\n"
             "• The group votes to eliminate players each round\n\n"
             "*Commands:*\n"
-            "`/jugarimpostor` — Create a game\n"
-            "`/unirse` — Join the game\n"
-            "`/votar` — Open voting \\(creator only\\)\n"
-            "`/comojugar` — How to play\n"
-            "`/puntaje` — View scoreboard\n"
+            "`/playimpostor` — Create a game\n"
+            "`/join` — Join the game\n"
+            "`/vote` — Open voting \\(creator only\\)\n"
+            "`/howtoplay` — How to play\n"
+            "`/score` — View scoreboard\n"
             "`/resetimpostor` — Reset scores\n"
-            "`/idioma` — Change language\n"
-            "`/cancelar` — Cancel game"
+            "`/language` — Change language\n"
+            "`/cancel` — Cancel game"
         ),
         # cmd_como_jugar
         "comojugar": (
@@ -219,9 +219,9 @@ TEXTOS = {
             "━━━━━━━━━━━━━━━━━━━━\n"
             "*🎮 Game steps*\n\n"
             "*0\\. Start the bot in private*\n"
-            "Go to @impostortg\\_bot and press the `Start` button at the bottom, then use `/comojugar` to learn about the bot\\.\n\n"
+            "Go to @impostortg\\_bot and press the `Start` button at the bottom, then use `/howtoplay` to learn about the bot\\.\n\n"
             "*1\\. Create the game*\n"
-            "Someone uses `/jugarimpostor` and others join with `/unirse` or the button\\.\n\n"
+            "Someone uses `/playimpostor` and others join with `/join` or the button\\.\n\n"
             "*2\\. Start*\n"
             "With at least 3 players, the creator picks a category and taps *Start game\\!*\n\n"
             "*3\\. Secret words*\n"
@@ -255,18 +255,18 @@ TEXTOS = {
             "  • 7\\+ players → 2 to 3 impostors \\(random\\)\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "*📌 Commands*\n"
-            "`/jugarimpostor` — Create game\n"
-            "`/unirse` — Join game\n"
-            "`/votar` — Open voting \\(creator\\)\n"
-            "`/puntaje` — View scoreboard\n"
+            "`/playimpostor` — Create game\n"
+            "`/join` — Join game\n"
+            "`/vote` — Open voting \\(creator\\)\n"
+            "`/score` — View scoreboard\n"
             "`/resetimpostor` — Reset scores\n"
-            "`/idioma` — Change language\n"
-            "`/cancelar` — Cancel game"
+            "`/language` — Change language\n"
+            "`/cancel` — Cancel game"
         ),
-        "partida_activa":           "⚠️ There's already an active game. Use /cancelar first.",
+        "partida_activa":           "⚠️ There's already an active game. Use /cancel first.",
         "btn_unirse":               "✋ Join the game",
-        "nueva_partida":            "🎮 *{nombre} created a new Impostor game\\!*\n\nPress the button or use /unirse to join\\.\nWhen ready, the creator presses *Start game\\!*",
-        "sin_partida":              "⚠️ There's no open game. Use /jugarimpostor to create one.",
+        "nueva_partida":            "🎮 *{nombre} created a new Impostor game\\!*\n\nPress the button or use /join to join\\.\nWhen ready, the creator presses *Start game\\!*",
+        "sin_partida":              "⚠️ There's no open game. Use /playimpostor to create one.",
         "partida_en_curso":         "⚠️ The game is already in progress, you can't join now.",
         "ya_en_partida":            "⚠️ You're already in the game.",
         "partida_llena":            "⚠️ The game is full \\(maximum {n} players\\)\\.",
@@ -320,8 +320,8 @@ TEXTOS = {
         "segunda_ronda":            "🔄 *Second clue round\\!*\n\nAfter this round, voting will open\\.\n\n*🎲 New order:*\n{orden}",
         "todos_dieron_pista":       "✅ *Everyone gave their clue\\!*\n\nThe creator can open voting 🗳️",
         "nueva_ronda_pistas":       "🔄 *New clue round\\!*\n\n👥 Alive players: *{n}*\n\n*🎲 New clue order:*\n{orden}\n\nEach player gives *one clue* about the word\\.\nWhen done, the creator opens voting 🗳️",
-        "grupo_gana":               "🎉 *The group won\\!*\n\nThe impostors were: {impostores}\nThey were eliminated without guessing the word\\!\n\n🔑 The word was: *{palabra}* \\({cat}\\)\n\n*🏆 Scoreboard:*\n{tabla}\n\n_Use /jugarimpostor for another round_",
-        "impostores_ganan":         "🕵️ *The impostors won\\!*\n\nThey were: {impostores}\n{desc}\n\n🔑 The word was: *{palabra}* \\({cat}\\)\n\n*🏆 Scoreboard:*\n{tabla}\n\n_Use /jugarimpostor for another round_",
+        "grupo_gana":               "🎉 *The group won\\!*\n\nThe impostors were: {impostores}\nThey were eliminated without guessing the word\\!\n\n🔑 The word was: *{palabra}* \\({cat}\\)\n\n*🏆 Scoreboard:*\n{tabla}\n\n_Use /playimpostor for another round_",
+        "impostores_ganan":         "🕵️ *The impostors won\\!*\n\nThey were: {impostores}\n{desc}\n\n🔑 The word was: *{palabra}* \\({cat}\\)\n\n*🏆 Scoreboard:*\n{tabla}\n\n_Use /playimpostor for another round_",
         "desc_supervivencia":       "The impostors survived until only one innocent remained\\.",
         "desc_adivino":             "An impostor guessed the correct word\\.",
         "desc_error_voto":          "They incorrectly voted for *{nombre}*\\.",
@@ -332,7 +332,7 @@ TEXTOS = {
         "reset_ok":                 "🔄 *Scores reset\\.*\n\nAll wins and losses back to zero\\. Let's start fresh\\! 🎮",
         "sin_partida_activa":       "⚠️ There's no active game.",
         "solo_creador_cancelar":    "⚠️ Only the creator can cancel the game.",
-        "cancelado":                "❌ Game cancelled\\. Use /jugarimpostor to start another\\.",
+        "cancelado":                "❌ Game cancelled\\. Use /playimpostor to start another\\.",
         "idioma_actual":            "🌐 *Current language: English*\n\nChoose a language:",
         "idioma_cambiado_es":       "✅ Idioma cambiado a *Español*\\.",
         "idioma_cambiado_en":       "✅ Language changed to *English*\\.",
@@ -1968,14 +1968,14 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
-    app.add_handler(CommandHandler("jugarimpostor", cmd_nueva))
-    app.add_handler(CommandHandler("unirse",        cmd_unirse))
-    app.add_handler(CommandHandler("votar",         cmd_votar))
-    app.add_handler(CommandHandler("puntaje",       cmd_puntaje))
-    app.add_handler(CommandHandler("cancelar",      cmd_cancelar))
-    app.add_handler(CommandHandler("comojugar",     cmd_como_jugar))
+    app.add_handler(CommandHandler("playimpostor", cmd_nueva))
+    app.add_handler(CommandHandler("join",        cmd_unirse))
+    app.add_handler(CommandHandler("vote",         cmd_votar))
+    app.add_handler(CommandHandler("score",       cmd_puntaje))
+    app.add_handler(CommandHandler("cancel",      cmd_cancelar))
+    app.add_handler(CommandHandler("howtoplay",     cmd_como_jugar))
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
-    app.add_handler(CommandHandler("idioma",        cmd_idioma))
+    app.add_handler(CommandHandler("language",        cmd_idioma))
 
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
