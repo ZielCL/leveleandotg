@@ -18,6 +18,7 @@ from telegram.ext import (
 
 import os
 TOKEN = os.environ.get("BOT_TOKEN")
+MAX_JUGADORES = 8
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -109,6 +110,7 @@ TEXTOS = {
         "sin_partida":              "⚠️ No hay ninguna partida abierta. Usa /jugarimpostor para crear una.",
         "partida_en_curso":         "⚠️ La partida ya está en curso, no puedes unirte ahora.",
         "ya_en_partida":            "⚠️ Ya estás en la partida.",
+        "partida_llena":            "⚠️ La partida está llena \\(máximo {n} jugadores\\)\\.",
         "unido":                    "✅ *{nombre} se unió\\!*\n\n*Jugadores* \\({n}\\):\n{lista}\n\n",
         "puede_iniciar":            "_El creador puede iniciar cuando quiera\\._",
         "faltan_jugadores":         "Faltan *{n}* jugadores más para poder iniciar\\.",
@@ -267,6 +269,7 @@ TEXTOS = {
         "sin_partida":              "⚠️ There's no open game. Use /jugarimpostor to create one.",
         "partida_en_curso":         "⚠️ The game is already in progress, you can't join now.",
         "ya_en_partida":            "⚠️ You're already in the game.",
+        "partida_llena":            "⚠️ The game is full \\(maximum {n} players\\)\\.",
         "unido":                    "✅ *{nombre} joined\\!*\n\n*Players* \\({n}\\):\n{lista}\n\n",
         "puede_iniciar":            "_The creator can start whenever ready\\._",
         "faltan_jugadores":         "Need *{n}* more players to start\\.",
@@ -1194,6 +1197,10 @@ async def _unirse(chat_key, user, reply_fn):
         await reply_fn(t(chat_key, "ya_en_partida"))
         return
 
+    if len(activos) >= MAX_JUGADORES:
+        await reply_fn(t(chat_key, "partida_llena").format(n=MAX_JUGADORES))
+        return
+
     upsert_jugador(chat_key, user.id, nombre(user))
     agregar_jugador_activo(chat_key, user.id, nombre(user))
     activos = get_jugadores_activos(chat_key)
@@ -1204,7 +1211,8 @@ async def _unirse(chat_key, user, reply_fn):
         keyboard = [[InlineKeyboardButton(t(chat_key, "btn_iniciar"), callback_data="iniciar_partida")]]
 
     sufijo = (
-        t(chat_key, "puede_iniciar") if len(activos) >= 3
+        t(chat_key, "partida_llena").format(n=MAX_JUGADORES) if len(activos) >= MAX_JUGADORES
+        else t(chat_key, "puede_iniciar") if len(activos) >= 3
         else t(chat_key, "faltan_jugadores").format(n=3 - len(activos))
     )
     await reply_fn(
