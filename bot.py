@@ -1293,6 +1293,19 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(t(chat_key, "solo_creador_categoria"), show_alert=True)
         return
 
+    # Evitar doble ejecución: solo proceder si sigue en estado 'esperando'
+    if partida[2] != "esperando":
+        return
+
+    # Marcar como 'iniciando' atómicamente para bloquear segundos clics
+    with get_conn() as conn:
+        updated = conn.execute(
+            "UPDATE partidas SET estado='iniciando' WHERE chat_key=? AND estado='esperando'",
+            (chat_key,)
+        ).rowcount
+    if updated == 0:
+        return  # Otro proceso ya tomó el control
+
     categorias = cats(chat_key)
     categoria_raw = query.data.split(":", 1)[1]
     es_random = (categoria_raw == "RANDOM")
@@ -1576,13 +1589,31 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
 
     # ── Sin empate: procesar eliminación ──
     eliminado_id = empatados[0]
-    impostor_ids_set = set(int(i) for i in partida[5].split(","))
-    impostores = [j for j in jugadores if j[0] in impostor_ids_set]
+
+    # Recargar todo fresco desde DB para evitar datos desactualizados
+    partida = get_partida(chat_key)
+    if not partida:
+        return
+
+    impostor_ids_raw = partida[5] or ""
+    impostor_ids_set = set(int(i) for i in impostor_ids_raw.split(",") if i.strip())
+
+    todos_jugadores = get_jugadores_activos(chat_key)
+    vivos_ids_frescos = get_vivos(chat_key)
+    vivos = [j for j in todos_jugadores if j[0] in vivos_ids_frescos]
+
+    impostor_names_map = {j[0]: j[1] for j in todos_jugadores}
+    impostores = [(uid, impostor_names_map.get(uid, str(uid))) for uid in impostor_ids_set]
+
     eliminado = next((j for j in vivos if j[0] == eliminado_id), None)
+    if eliminado is None:
+        eliminado = (eliminado_id, impostor_names_map.get(eliminado_id, str(eliminado_id)))
+
+    logger.info(f"[resolver_votacion] eliminado_id={eliminado_id} impostor_ids={impostor_ids_raw} impostor_ids_set={impostor_ids_set} es_impostor={eliminado_id in impostor_ids_set}")
     palabra = partida[4]
     categoria = partida[3]
 
-    nombre_map = {j[0]: j[1] for j in jugadores}
+    nombre_map = {j[0]: j[1] for j in todos_jugadores}
     detalle_votos = "\n".join(
         f"  • {esc(nombre_map.get(v_from, '?'))} → {esc(nombre_map.get(v_to, '?'))}"
         for v_from, v_to in votos.items()
@@ -1643,18 +1674,18 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
 
     # ── Inocente votado ──
     if not impostores_vivos:
-        await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message)
+        await _fin_grupo_gana(chat_key, ctx, todos_jugadores, impostores, palabra, categoria, detalle_votos, message)
         return
 
     inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
     if len(inocentes_restantes) <= 1:
         await _fin_impostores_ganan(
-            chat_key, ctx, partida, jugadores, impostores,
+            chat_key, ctx, partida, todos_jugadores, impostores,
             None, palabra, categoria, detalle_votos, message, razon="supervivencia"
         )
         return
 
-    await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
+    await _nueva_ronda_pistas(chat_key, ctx, todos_jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
 
 
 async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_set, palabra, categoria, message):
@@ -1914,10 +1945,22 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     )
 
 
+def limpiar_nombre_tabla(nombre):
+    """Elimina emojis y caracteres no-ASCII para alinear bien la tabla monoespaciada."""
+    import unicodedata
+    resultado = ""
+    for c in nombre:
+        cat = unicodedata.category(c)
+        # Excluir emojis (So), símbolos (S*), y caracteres de control
+        if cat.startswith("S") or cat.startswith("C"):
+            continue
+        resultado += c
+    return resultado.strip()[:14] or nombre[:14]
+
 def formatear_tabla(chat_key, jugadores):
     filas = []
     for j in jugadores:
-        nombre_j = j[1][:14]
+        nombre_j = limpiar_nombre_tabla(j[1])
         v = j[2]
         d = j[3]
         balance = v - d
