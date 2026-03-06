@@ -2112,17 +2112,6 @@ async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
-    # Solo admins/mods
-    try:
-        member = await chat.get_member(user.id)
-        es_admin = member.status in ("administrator", "creator")
-    except Exception:
-        es_admin = False
-
-    if not es_admin:
-        await update.message.reply_text("⚠️ Solo los administradores pueden usar este comando.")
-        return
-
     # Obtener todos los usuarios registrados en el grupo
     with get_conn() as conn:
         miembros = conn.execute(
