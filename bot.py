@@ -1306,27 +1306,44 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if updated == 0:
         return  # Otro proceso ya tomó el control
 
-    categorias = cats(chat_key)
-    categoria_raw = query.data.split(":", 1)[1]
-    es_random = (categoria_raw == "RANDOM")
-    categoria = random.choice(list(categorias.keys())) if es_random else categoria_raw
+    try:
+        categorias = cats(chat_key)
+        categoria_raw = query.data.split(":", 1)[1]
+        es_random = (categoria_raw == "RANDOM")
+        categoria = random.choice(list(categorias.keys())) if es_random else categoria_raw
 
-    texto_cat_grupo = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_grupo").format(cat=esc(categoria))
-    texto_cat_confirmacion = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_confirmacion").format(cat=esc(categoria))
+        # Verificar que la categoria exista (por si acaso llegó un valor inválido)
+        if categoria not in categorias:
+            logger.error(f"[btn_categoria] categoria invalida: {categoria!r}")
+            with get_conn() as conn:
+                conn.execute("UPDATE partidas SET estado='esperando' WHERE chat_key=?", (chat_key,))
+            await query.message.reply_text("⚠️ Error al elegir categoría. Intenta de nuevo.")
+            return
 
-    palabra = random.choice(categorias[categoria])
-    jugadores = get_jugadores_activos(chat_key)
-    num_impostores = calcular_num_impostores(len(jugadores))
-    impostores = random.sample(jugadores, num_impostores)
-    impostor_ids = ",".join(str(i[0]) for i in impostores)
-    impostor_ids_set = set(i[0] for i in impostores)
-    vivos_ids = ",".join(str(j[0]) for j in jugadores)
+        texto_cat_grupo = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_grupo").format(cat=esc(categoria))
+        texto_cat_confirmacion = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_confirmacion").format(cat=esc(categoria))
 
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=?, vivos=? WHERE chat_key=?",
-            (categoria, palabra, impostor_ids, vivos_ids, chat_key)
-        )
+        palabra = random.choice(categorias[categoria])
+        jugadores = get_jugadores_activos(chat_key)
+        num_impostores = calcular_num_impostores(len(jugadores))
+        impostores = random.sample(jugadores, num_impostores)
+        impostor_ids = ",".join(str(i[0]) for i in impostores)
+        impostor_ids_set = set(i[0] for i in impostores)
+        vivos_ids = ",".join(str(j[0]) for j in jugadores)
+
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=?, vivos=? WHERE chat_key=?",
+                (categoria, palabra, impostor_ids, vivos_ids, chat_key)
+            )
+
+    except Exception as e:
+        # Si algo falla, devolver la partida a 'esperando' para que se pueda reintentar
+        logger.error(f"[btn_categoria] error inesperado: {e}")
+        with get_conn() as conn:
+            conn.execute("UPDATE partidas SET estado='esperando' WHERE chat_key=?", (chat_key,))
+        await query.message.reply_text("⚠️ Ocurrió un error al iniciar la partida. Intenta de nuevo.")
+        return
 
     await query.edit_message_text(
         f"{texto_cat_confirmacion}\n\n{t(chat_key, 'enviando_privado')}",
