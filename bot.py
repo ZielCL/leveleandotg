@@ -488,53 +488,70 @@ CATEGORIAS = {
             "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
         ],
         "🎤 K-Pop (idols/grupos)": [
-            "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
-            "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
-            "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
-            "BTS", "EXO", "GOT7", "SEVENTEEN", "NCT 127",
-            "SHINee", "BIGBANG", "2PM", "INFINITE", "VIXX",
-            "WINNER", "iKON", "ASTRO", "DAY6", "HIGHLIGHT",
+            # Grupos femeninos actuales
             "BLACKPINK", "TWICE", "aespa", "IVE", "NewJeans",
             "ITZY", "NMIXX", "LE SSERAFIM", "MAMAMOO", "Red Velvet",
-            "Kep1er", "STAYC", "EVERGLOW", "WEEEKLY", "tripleS", "BABYMONSTER",
-            "Girls Generation", "f(x)", "2NE1", "Wonder Girls", "T-ARA",
-            "SISTAR", "4MINUTE", "AOA", "APINK", "EXID",
-            "G-Dragon", "Taeyang", "Daesung", "T.O.P",
-            "PSY", "Rain", "Se7en", "Zico", "Jay Park",
-            "Dean", "Crush", "Epik High",
-            "RM", "Jin", "Suga", "J-Hope", "Jimin", "V", "Jungkook",
-            "Baekhyun", "Chanyeol", "D.O", "Kai", "Sehun",
-            "Suho", "Xiumin", "Chen", "Lay",
-            "Woozi", "Mingyu", "Vernon", "Hoshi", "Jeonghan",
-            "S.Coups", "The8", "Dino",
-            "Bang Chan", "Lee Know", "Changbin", "Hyunjin", "Han",
-            "Felix", "Seungmin", "I.N",
-            "Hongjoong", "Seonghwa", "Yunho", "Yeosang", "San",
-            "Mingi", "Wooyoung", "Jongho",
-            "Onew", "Key", "Minho", "Taemin",
+            "BABYMONSTER", "STAYC", "Kep1er", "EVERGLOW", "WEEEKLY",
+            "tripleS", "(G)I-DLE", "APINK", "EXID", "AOA",
+            # Grupos femeninos legendarios/2ª y 3ª generación
+            "Girls Generation", "2NE1", "Wonder Girls", "T-ARA", "SISTAR",
+            "4MINUTE", "f(x)", "After School", "MISS A", "Brown Eyed Girls",
+            "SECRET", "KARA", "Rainbow", "Hello Venus", "Stellar",
+            "GFRIEND", "MOMOLAND", "LOONA", "Oh My Girl", "MAMAMOO",
+            "CLC", "Dreamcatcher", "Brave Girls", "fromis_9", "DIA",
+            # Solistas femeninas
             "IU", "Sunmi", "HyunA", "Chungha", "Heize",
             "Jessi", "Somi", "Gain", "BoA", "CL",
+            "Taeyeon", "Tiffany", "Hyolyn", "Ailee", "Wheein",
+            "Hwasa", "Yubin", "Hyosung", "Lee Hyori", "Park Bom",
+            # Integrantes BLACKPINK
             "Jennie", "Lisa", "Rosé", "Jisoo",
+            # Integrantes TWICE
             "Nayeon", "Jeongyeon", "Momo", "Sana", "Jihyo",
             "Mina", "Dahyun", "Chaeyoung", "Tzuyu",
+            # Integrantes aespa
             "Karina", "Giselle", "Winter", "Ningning",
+            # Integrantes IVE
             "Yujin", "Gaeul", "Rei", "Wonyoung", "Liz", "Leeseo",
+            # Integrantes NewJeans
             "Minji", "Hanni", "Danielle", "Haerin", "Hyein",
+            # Integrantes Red Velvet
             "Irene", "Seulgi", "Wendy", "Joy", "Yeri",
+            # Integrantes ITZY
             "Yeji", "Lia", "Ryujin", "Chaeryeong", "Yuna",
+            # Integrantes LE SSERAFIM
             "Sakura", "Chaewon", "Yunjin", "Kazuha", "Eunchae",
+            # Integrantes Girls Generation
             "Taeyeon", "Tiffany", "Yoona", "Yuri", "Sooyoung",
             "Hyoyeon", "Sunny", "Seohyun",
+            # Integrantes MAMAMOO
             "Solar", "Moonbyul", "Wheein", "Hwasa",
+            # Integrantes NMIXX
             "Lily", "Haewon", "Sullyoon", "Bae", "Jiwoo", "Kyujin",
+            # Integrantes STAYC
             "Sumin", "Sieun", "ISA", "Seeun", "Yoon", "J",
+            # Integrantes Kep1er
             "Mashiro", "Chaehyun", "Hikaru", "Dayeon", "Xiaoting", "Yeseo", "Youngeun",
+            # Integrantes EVERGLOW
             "Aisha", "Sihyeon", "Mia", "Onda", "Yiren",
+            # Integrantes (G)I-DLE
             "Miyeon", "Minnie", "Soojin", "Soyeon", "Yuqi", "Shuhua",
+            # Integrantes EXID
             "Solji", "LE", "Hani", "Hyelin", "Jeonghwa",
+            # Integrantes APINK
             "Chorong", "Bomi", "Eunji", "Namjoo", "Hayoung",
+            # Integrantes GFRIEND
             "SinB", "Eunha", "Umji",
+            # Integrantes BABYMONSTER
             "Ruka", "Pharita", "Asa", "Rami", "Ahyeon", "Rora", "Chiquita",
+            # Integrantes Oh My Girl
+            "Hyojung", "Mimi", "YooA", "Seunghee", "Jiho", "Binnie", "Arin",
+            # Integrantes fromis_9
+            "Hayoung", "Saerom", "Nagyung", "Jiwon", "Jisun", "Seoyeon", "Chaeyoung", "Gyuri",
+            # Integrantes LOONA
+            "Heejin", "Hyunjin", "Haseul", "Yeojin", "Vivi", "Kim Lip", "Jinsoul", "Choerry",
+            # Integrantes Dreamcatcher
+            "JiU", "SuA", "Siyeon", "Handong", "Yoohyeon", "Dami", "Gahyeon",
         ],
         "🍽️ Comidas del mundo": [
             "Pizza", "Pasta Carbonara", "Lasaña", "Risotto", "Paella",
@@ -745,53 +762,70 @@ CATEGORIAS = {
             "Kevin De Bruyne", "Harry Kane", "Marcus Rashford", "Trent Alexander-Arnold", "Alphonso Davies",
         ],
         "🎤 K-Pop (idols/groups)": [
-            "Stray Kids", "ATEEZ", "TXT", "ENHYPEN", "NCT Dream",
-            "TREASURE", "THE BOYZ", "MONSTA X", "VICTON", "BTOB",
-            "P1Harmony", "TEMPEST", "ZEROBASEONE", "BOYNEXTDOOR", "RIIZE",
-            "BTS", "EXO", "GOT7", "SEVENTEEN", "NCT 127",
-            "SHINee", "BIGBANG", "2PM", "INFINITE", "VIXX",
-            "WINNER", "iKON", "ASTRO", "DAY6", "HIGHLIGHT",
+            # Current girl groups
             "BLACKPINK", "TWICE", "aespa", "IVE", "NewJeans",
             "ITZY", "NMIXX", "LE SSERAFIM", "MAMAMOO", "Red Velvet",
-            "Kep1er", "STAYC", "EVERGLOW", "WEEEKLY", "tripleS", "BABYMONSTER",
-            "Girls Generation", "f(x)", "2NE1", "Wonder Girls", "T-ARA",
-            "SISTAR", "4MINUTE", "AOA", "APINK", "EXID",
-            "G-Dragon", "Taeyang", "Daesung", "T.O.P",
-            "PSY", "Rain", "Se7en", "Zico", "Jay Park",
-            "Dean", "Crush", "Epik High",
-            "RM", "Jin", "Suga", "J-Hope", "Jimin", "V", "Jungkook",
-            "Baekhyun", "Chanyeol", "D.O", "Kai", "Sehun",
-            "Suho", "Xiumin", "Chen", "Lay",
-            "Woozi", "Mingyu", "Vernon", "Hoshi", "Jeonghan",
-            "S.Coups", "The8", "Dino",
-            "Bang Chan", "Lee Know", "Changbin", "Hyunjin", "Han",
-            "Felix", "Seungmin", "I.N",
-            "Hongjoong", "Seonghwa", "Yunho", "Yeosang", "San",
-            "Mingi", "Wooyoung", "Jongho",
-            "Onew", "Key", "Minho", "Taemin",
+            "BABYMONSTER", "STAYC", "Kep1er", "EVERGLOW", "WEEEKLY",
+            "tripleS", "(G)I-DLE", "APINK", "EXID", "AOA",
+            # Legendary/2nd & 3rd gen girl groups
+            "Girls Generation", "2NE1", "Wonder Girls", "T-ARA", "SISTAR",
+            "4MINUTE", "f(x)", "After School", "MISS A", "Brown Eyed Girls",
+            "SECRET", "KARA", "Rainbow", "Hello Venus", "Stellar",
+            "GFRIEND", "MOMOLAND", "LOONA", "Oh My Girl", "MAMAMOO",
+            "CLC", "Dreamcatcher", "Brave Girls", "fromis_9", "DIA",
+            # Female soloists
             "IU", "Sunmi", "HyunA", "Chungha", "Heize",
             "Jessi", "Somi", "Gain", "BoA", "CL",
+            "Taeyeon", "Tiffany", "Hyolyn", "Ailee", "Wheein",
+            "Hwasa", "Yubin", "Hyosung", "Lee Hyori", "Park Bom",
+            # BLACKPINK members
             "Jennie", "Lisa", "Rosé", "Jisoo",
+            # TWICE members
             "Nayeon", "Jeongyeon", "Momo", "Sana", "Jihyo",
             "Mina", "Dahyun", "Chaeyoung", "Tzuyu",
+            # aespa members
             "Karina", "Giselle", "Winter", "Ningning",
+            # IVE members
             "Yujin", "Gaeul", "Rei", "Wonyoung", "Liz", "Leeseo",
+            # NewJeans members
             "Minji", "Hanni", "Danielle", "Haerin", "Hyein",
+            # Red Velvet members
             "Irene", "Seulgi", "Wendy", "Joy", "Yeri",
+            # ITZY members
             "Yeji", "Lia", "Ryujin", "Chaeryeong", "Yuna",
+            # LE SSERAFIM members
             "Sakura", "Chaewon", "Yunjin", "Kazuha", "Eunchae",
+            # Girls Generation members
             "Taeyeon", "Tiffany", "Yoona", "Yuri", "Sooyoung",
             "Hyoyeon", "Sunny", "Seohyun",
+            # MAMAMOO members
             "Solar", "Moonbyul", "Wheein", "Hwasa",
+            # NMIXX members
             "Lily", "Haewon", "Sullyoon", "Bae", "Jiwoo", "Kyujin",
+            # STAYC members
             "Sumin", "Sieun", "ISA", "Seeun", "Yoon", "J",
+            # Kep1er members
             "Mashiro", "Chaehyun", "Hikaru", "Dayeon", "Xiaoting", "Yeseo", "Youngeun",
+            # EVERGLOW members
             "Aisha", "Sihyeon", "Mia", "Onda", "Yiren",
+            # (G)I-DLE members
             "Miyeon", "Minnie", "Soojin", "Soyeon", "Yuqi", "Shuhua",
+            # EXID members
             "Solji", "LE", "Hani", "Hyelin", "Jeonghwa",
+            # APINK members
             "Chorong", "Bomi", "Eunji", "Namjoo", "Hayoung",
+            # GFRIEND members
             "SinB", "Eunha", "Umji",
+            # BABYMONSTER members
             "Ruka", "Pharita", "Asa", "Rami", "Ahyeon", "Rora", "Chiquita",
+            # Oh My Girl members
+            "Hyojung", "Mimi", "YooA", "Seunghee", "Jiho", "Binnie", "Arin",
+            # fromis_9 members
+            "Hayoung", "Saerom", "Nagyung", "Jiwon", "Jisun", "Seoyeon", "Chaeyoung", "Gyuri",
+            # LOONA members
+            "Heejin", "Hyunjin", "Haseul", "Yeojin", "Vivi", "Kim Lip", "Jinsoul", "Choerry",
+            # Dreamcatcher members
+            "JiU", "SuA", "Siyeon", "Handong", "Yoohyeon", "Dami", "Gahyeon",
         ],
         "🍽️ World Foods": [
             "Pizza", "Pasta Carbonara", "Lasagna", "Risotto", "Paella",
