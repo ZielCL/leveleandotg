@@ -968,7 +968,35 @@ def cats(chat_key: str) -> dict:
     lang = get_idioma(chat_key)
     return CATEGORIAS[lang]
 
-def generar_pistas(palabra: str, categoria: str, chat_key: str) -> str:
+def elegir_palabra(chat_key: str, categoria: str, palabras: list) -> str:
+    """
+    Elige una palabra evitando repetir las usadas recientemente.
+    - Las últimas N palabras de esa categoría reciben peso 0 (excluidas).
+    - N = min(mitad del pool, 10). Si todas fueron usadas, se resetea.
+    - El resto tiene peso uniforme → igual probabilidad entre sí.
+    """
+    if len(palabras) == 1:
+        return palabras[0]
+
+    excluir_n = min(len(palabras) // 2, 10)
+
+    with get_conn() as conn:
+        recientes = conn.execute(
+            """SELECT palabra FROM historial
+               WHERE chat_key=? AND categoria=?
+               ORDER BY fecha DESC LIMIT ?""",
+            (chat_key, categoria, excluir_n)
+        ).fetchall()
+
+    usadas = {r[0] for r in recientes}
+    candidatas = [p for p in palabras if p not in usadas]
+
+    if not candidatas:
+        candidatas = palabras  # todas usadas → resetear
+
+    return random.choice(candidatas)
+
+
     lang = get_idioma(chat_key)
     prompt = TEXTOS[lang]["prompt_pistas"].format(palabra=palabra, categoria=categoria)
     fallback = TEXTOS[lang]["pistas_fallback"]
@@ -1363,7 +1391,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         texto_cat_grupo = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_grupo").format(cat=esc(categoria))
         texto_cat_confirmacion = t(chat_key, "cat_sorpresa_grupo") if es_random else t(chat_key, "cat_confirmacion").format(cat=esc(categoria))
 
-        palabra = random.choice(categorias[categoria])
+        palabra = elegir_palabra(chat_key, categoria, categorias[categoria])
         jugadores = get_jugadores_activos(chat_key)
         num_impostores = calcular_num_impostores(len(jugadores))
         impostores = random.sample(jugadores, num_impostores)
