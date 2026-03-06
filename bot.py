@@ -997,6 +997,7 @@ def elegir_palabra(chat_key: str, categoria: str, palabras: list) -> str:
     return random.choice(candidatas)
 
 
+def generar_pistas(palabra: str, categoria: str, chat_key: str) -> str:
     lang = get_idioma(chat_key)
     prompt = TEXTOS[lang]["prompt_pistas"].format(palabra=palabra, categoria=categoria)
     fallback = TEXTOS[lang]["pistas_fallback"]
