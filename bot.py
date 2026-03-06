@@ -1827,6 +1827,8 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
     chat_key = get_chat_key(update)
     user = update.effective_user
     texto = update.message.text.strip()
