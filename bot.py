@@ -161,6 +161,7 @@ TEXTOS = {
         "confirmar_pista_msg":      "¿Confirmas *{pista}* como tu pista\\?",
         "no_tu_turno":              "⚠️ No es tu turno.",
         "pista_confirmada":         "✅ ¡Pista confirmada!",
+        "pista_auto_confirmada":    "⚠️ Tercer intento — pista enviada automáticamente\\.",
         "segunda_ronda":            "🔄 *¡Segunda ronda de pistas\\!*\n\nAhora sí, después de esta ronda se abrirá la votación\\.\n\n*🎲 Nuevo orden:*\n{orden}",
         "todos_dieron_pista":       "✅ *¡Todos dieron su pista\\!*\n\nEl creador puede abrir la votación 🗳️",
         "nueva_ronda_pistas":       "🔄 *¡Nueva ronda de pistas\\!*\n\n👥 Jugadores vivos: *{n}*\n\n*🎲 Nuevo orden de pistas:*\n{orden}\n\nCada uno da *una pista* sobre la palabra\\.\nCuando terminen, el creador abre la votación 🗳️",
@@ -334,6 +335,7 @@ TEXTOS = {
         "confirmar_pista_msg":      "Confirm *{pista}* as your clue\\?",
         "no_tu_turno":              "⚠️ It's not your turn.",
         "pista_confirmada":         "✅ Clue confirmed!",
+        "pista_auto_confirmada":    "⚠️ Third attempt — clue sent automatically\\.",
         "segunda_ronda":            "🔄 *Second clue round\\!*\n\nAfter this round, voting will open\\.\n\n*🎲 New order:*\n{orden}",
         "todos_dieron_pista":       "✅ *Everyone gave their clue\\!*\n\nThe creator can open voting 🗳️",
         "nueva_ronda_pistas":       "🔄 *New clue round\\!*\n\n👥 Alive players: *{n}*\n\n*🎲 New clue order:*\n{orden}\n\nEach player gives *one clue* about the word\\.\nWhen done, the creator opens voting 🗳️",
@@ -1517,7 +1519,8 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "index": 0,
         "ya_dieron_pista": set(),
         "ronda_pistas": 1,
-        "jugadores_iniciales": len(jugadores)
+        "jugadores_iniciales": len(jugadores),
+        "intentos_pista": {}
     }
 
     aviso = ""
@@ -1858,7 +1861,8 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
         "index": 0,
         "ya_dieron_pista": set(),
         "ronda_pistas": 2,
-        "jugadores_iniciales": len(jugadores)
+        "jugadores_iniciales": len(jugadores),
+        "intentos_pista": {}
     }
 
     with get_conn() as conn:
@@ -1896,6 +1900,7 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer(t(chat_key, "pista_confirmada"))
 
     pista_texto = turno_data.pop("pista_pendiente", None)
+    turno_data.setdefault("intentos_pista", {})[user.id] = 0  # resetear contador
     if pista_texto:
         try:
             await query.message.edit_text(
@@ -1931,7 +1936,8 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "index": 0,
                 "ya_dieron_pista": set(),
                 "ronda_pistas": 2,
-                "jugadores_iniciales": jugadores_iniciales
+                "jugadores_iniciales": jugadores_iniciales,
+                "intentos_pista": {}
             }
 
             await ctx.bot.send_message(
@@ -2054,6 +2060,74 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         callback_data=f"confirmar_pista:{user.id}"
     )]]
     turno_data["pista_pendiente"] = texto
+
+    intentos = turno_data.setdefault("intentos_pista", {})
+    intentos[user.id] = intentos.get(user.id, 0) + 1
+
+    if intentos[user.id] >= 3:
+        # Tercer intento: confirmar automáticamente sin botón
+        await update.message.reply_text(
+            t(chat_key, "pista_auto_confirmada"),
+            parse_mode="MarkdownV2"
+        )
+        # Simular confirmación directamente
+        chat_id = update.effective_chat.id
+        thread_id = get_thread_id(chat_key)
+        turno_data.pop("pista_pendiente", None)
+        intentos[user.id] = 0
+
+        turno_data["ya_dieron_pista"].add(user.id)
+        siguiente_index = index + 1
+        turno_data["index"] = siguiente_index
+
+        # Mostrar pista en negrita en el chat
+        try:
+            await update.message.reply_text(
+                f"💬 *{esc(nombre(user))}*: *{esc(texto)}*",
+                parse_mode="MarkdownV2"
+            )
+        except Exception:
+            pass
+
+        if siguiente_index >= len(orden):
+            ronda_pistas = turno_data.get("ronda_pistas", 1)
+            jugadores_iniciales = turno_data.get("jugadores_iniciales", len(orden))
+
+            if jugadores_iniciales == 3 and ronda_pistas == 1:
+                ctx.bot_data.pop(f"turno_{chat_key}", None)
+                jugadores_frescos = get_jugadores_activos(chat_key)
+                vivos_ids = get_vivos(chat_key)
+                vivos = [j for j in jugadores_frescos if j[0] in vivos_ids]
+                nuevo_orden = list(vivos)
+                random.shuffle(nuevo_orden)
+                turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(nuevo_orden))
+                ctx.bot_data[f"turno_{chat_key}"] = {
+                    "orden": [j[0] for j in nuevo_orden],
+                    "index": 0,
+                    "ya_dieron_pista": set(),
+                    "ronda_pistas": 2,
+                    "jugadores_iniciales": jugadores_iniciales,
+                    "intentos_pista": {}
+                }
+                await ctx.bot.send_message(chat_id, t(chat_key, "segunda_ronda").format(orden=turno_lista), parse_mode="MarkdownV2", message_thread_id=thread_id)
+                primer = nuevo_orden[0]
+                await ctx.bot.send_message(chat_id, t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]), parse_mode="MarkdownV2", message_thread_id=thread_id)
+                return
+
+            ctx.bot_data.pop(f"turno_{chat_key}", None)
+            await ctx.bot.send_message(
+                chat_id, t(chat_key, "todos_dieron_pista"), parse_mode="MarkdownV2",
+                message_thread_id=thread_id,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")]])
+            )
+            return
+
+        siguiente_id = orden[siguiente_index]
+        jugadores_frescos = get_jugadores_activos(chat_key)
+        nombre_siguiente = next((j[1] for j in jugadores_frescos if j[0] == siguiente_id), "?")
+        await ctx.bot.send_message(chat_id, t(chat_key, "turno").format(nombre=esc(nombre_siguiente), uid=siguiente_id), parse_mode="MarkdownV2", message_thread_id=thread_id)
+        return
+
     await update.message.reply_text(
         t(chat_key, "confirmar_pista_msg").format(pista=esc(texto)),
         parse_mode="MarkdownV2",
