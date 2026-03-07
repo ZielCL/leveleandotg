@@ -1302,9 +1302,20 @@ async def _unirse(chat_key, user, reply_fn, bot=None):
     activos = get_jugadores_activos(chat_key)
 
     lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(activos))
-    keyboard = []
-    if len(activos) >= 3:
-        keyboard = [[InlineKeyboardButton(t(chat_key, "btn_iniciar"), callback_data="iniciar_partida")]]
+
+    # Botón unirse siempre presente (para que no se pierda en el chat)
+    btn_unirse_row = [InlineKeyboardButton(t(chat_key, "btn_unirse"), callback_data="unirse")]
+
+    if len(activos) >= MAX_JUGADORES:
+        # Llena: solo mostrar unirse deshabilitado no es posible en TG, omitirlo
+        keyboard = []
+    elif len(activos) >= 3:
+        keyboard = [
+            btn_unirse_row,
+            [InlineKeyboardButton(t(chat_key, "btn_iniciar"), callback_data="iniciar_partida")],
+        ]
+    else:
+        keyboard = [btn_unirse_row]
 
     sufijo = (
         t(chat_key, "partida_llena").format(n=MAX_JUGADORES) if len(activos) >= MAX_JUGADORES
