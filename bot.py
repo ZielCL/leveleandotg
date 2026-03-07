@@ -204,6 +204,10 @@ TEXTOS = {
         "removeword_no_existe":     "⚠️ *{palabra}* no está en la lista\\.",
         "removeword_solo_admin":    "⚠️ Solo los administradores pueden eliminar palabras.",
         "removeword_uso":           "⚠️ Uso: `/removeword <palabra>`",
+        "roles_tabla":              "🎭 *Roles por jugador:*\n\n{tabla}",
+        "roles_sin_datos":          "📊 No hay datos de roles aún\\. ¡Juega primero\\!",
+        "col_impostor":             "Imp",
+        "col_inocente":             "Ino",
     },
     "en": {
         # cmd_start
@@ -378,6 +382,10 @@ TEXTOS = {
         "removeword_no_existe":     "⚠️ *{palabra}* is not in the list\\.",
         "removeword_solo_admin":    "⚠️ Only admins can remove words.",
         "removeword_uso":           "⚠️ Usage: `/removeword <word>`",
+        "roles_tabla":              "🎭 *Roles per player:*\n\n{tabla}",
+        "roles_sin_datos":          "📊 No role data yet\\. Play first\\!",
+        "col_impostor":             "Imp",
+        "col_inocente":             "Ino",
     }
 }
 
@@ -1062,12 +1070,14 @@ def init_db():
             creador_id      INTEGER
         );
         CREATE TABLE IF NOT EXISTS jugadores (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_key    TEXT,
-            user_id     INTEGER,
-            username    TEXT,
-            victorias   INTEGER DEFAULT 0,
-            derrotas    INTEGER DEFAULT 0,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key        TEXT,
+            user_id         INTEGER,
+            username        TEXT,
+            victorias       INTEGER DEFAULT 0,
+            derrotas        INTEGER DEFAULT 0,
+            veces_impostor  INTEGER DEFAULT 0,
+            veces_inocente  INTEGER DEFAULT 0,
             UNIQUE(chat_key, user_id)
         );
         CREATE TABLE IF NOT EXISTS partida_jugadores (
@@ -1096,6 +1106,13 @@ def init_db():
         );
     """)
     conn.commit()
+    # Migración: agregar columnas nuevas si no existen (DBs antiguas)
+    for col, default in [("veces_impostor", 0), ("veces_inocente", 0)]:
+        try:
+            conn.execute(f"ALTER TABLE jugadores ADD COLUMN {col} INTEGER DEFAULT {default}")
+            conn.commit()
+        except Exception:
+            pass  # Ya existe
     conn.close()
 
 def get_conn():
@@ -1202,6 +1219,20 @@ def sumar_derrota(chat_key, user_id):
     with get_conn() as conn:
         conn.execute(
             "UPDATE jugadores SET derrotas = derrotas + 1 WHERE chat_key=? AND user_id=?",
+            (chat_key, user_id)
+        )
+
+def sumar_vez_impostor(chat_key, user_id):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET veces_impostor = veces_impostor + 1 WHERE chat_key=? AND user_id=?",
+            (chat_key, user_id)
+        )
+
+def sumar_vez_inocente(chat_key, user_id):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET veces_inocente = veces_inocente + 1 WHERE chat_key=? AND user_id=?",
             (chat_key, user_id)
         )
 
@@ -1502,10 +1533,12 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             if uid in impostor_ids_set:
                 msg = t(chat_key, "eres_impostor").format(cat=esc(categoria))
+                sumar_vez_impostor(chat_key, uid)
             else:
                 msg = t(chat_key, "eres_inocente").format(
                     palabra=esc(palabra), cat=esc(categoria), pistas=pistas
                 )
+                sumar_vez_inocente(chat_key, uid)
             await ctx.bot.send_message(uid, msg, parse_mode="MarkdownV2")
         except Exception:
             fallidos.append(uname)
@@ -2436,6 +2469,42 @@ async def cmd_words(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    with get_conn() as conn:
+        jugadores = conn.execute(
+            """SELECT username, veces_impostor, veces_inocente
+               FROM jugadores
+               WHERE chat_key=? AND (veces_impostor > 0 OR veces_inocente > 0)
+               ORDER BY (veces_impostor + veces_inocente) DESC""",
+            (chat_key,)
+        ).fetchall()
+
+    if not jugadores:
+        await update.message.reply_text(t(chat_key, "roles_sin_datos"), parse_mode="MarkdownV2")
+        return
+
+    col = t(chat_key, "col_jugador")
+    col_imp = t(chat_key, "col_impostor")
+    col_ino = t(chat_key, "col_inocente")
+
+    filas = [(limpiar_nombre_tabla(j[0]), j[1], j[2]) for j in jugadores]
+    max_nombre = max(len(f[0]) for f in filas)
+    max_nombre = max(max_nombre, len(col))
+
+    encabezado = f"#   {col:<{max_nombre}}  {col_imp:<5}{col_ino}"
+    separador  = "─" * len(encabezado)
+    lineas = [encabezado, separador]
+    for i, (nom, imp, ino) in enumerate(filas, 1):
+        lineas.append(f"{i:<3} {nom:<{max_nombre}}  {imp:<5}{ino}")
+
+    tabla = "```\n" + "\n".join(lineas) + "\n```"
+    await update.message.reply_text(
+        t(chat_key, "roles_tabla").format(tabla=tabla),
+        parse_mode="MarkdownV2"
+    )
+
+
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
@@ -2507,6 +2576,7 @@ def main():
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
     app.add_handler(CommandHandler("language",        cmd_idioma))
     app.add_handler(CommandHandler("all",               cmd_all))
+    app.add_handler(CommandHandler("roles",             cmd_roles))
     app.add_handler(CommandHandler("addword",           cmd_addword))
     app.add_handler(CommandHandler("removeword",        cmd_removeword))
     app.add_handler(CommandHandler("words",             cmd_words))
