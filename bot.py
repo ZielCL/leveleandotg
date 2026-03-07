@@ -1965,6 +1965,28 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if index >= len(orden) or user.id != orden[index]:
         return
 
+    impostor_ids_raw = partida[5] or ""
+    impostor_ids_set = set(int(i) for i in impostor_ids_raw.split(",") if i.strip())
+    if user.id in impostor_ids_set and normalizar(texto) == normalizar(partida[4]):
+        todos_jugadores = get_jugadores_activos(chat_key)
+        impostores = [(uid, next((j[1] for j in todos_jugadores if j[0] == uid), str(uid))) for uid in impostor_ids_set]
+        ctx.bot_data.pop(f"turno_{chat_key}", None)
+        chat_id = update.effective_chat.id
+        thread_id = get_thread_id(chat_key)
+        await ctx.bot.send_message(
+            chat_id,
+            t(chat_key, "adivino").format(nombre=esc(nombre(user)), palabra=esc(partida[4])),
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+        msg = update.message
+        nombre_map = {j[0]: j[1] for j in todos_jugadores}
+        await _fin_impostores_ganan(
+            chat_key, ctx, partida, todos_jugadores, impostores,
+            None, partida[4], partida[3], {}, msg
+        )
+        return
+
     keyboard = [[InlineKeyboardButton(
         t(chat_key, "confirmar_pista_btn"),
         callback_data=f"confirmar_pista:{user.id}"
