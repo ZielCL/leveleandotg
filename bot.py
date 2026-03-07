@@ -1832,7 +1832,18 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer(t(chat_key, "pista_confirmada"))
-    await query.message.delete()
+
+    pista_texto = turno_data.pop("pista_pendiente", None)
+    if pista_texto:
+        try:
+            await query.message.edit_text(
+                f"💬 *{esc(nombre(user))}*: *{esc(pista_texto)}*",
+                parse_mode="MarkdownV2"
+            )
+        except Exception:
+            await query.message.delete()
+    else:
+        await query.message.delete()
 
     turno_data["ya_dieron_pista"].add(user.id)
     siguiente_index = index + 1
@@ -1958,6 +1969,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         t(chat_key, "confirmar_pista_btn"),
         callback_data=f"confirmar_pista:{user.id}"
     )]]
+    turno_data["pista_pendiente"] = texto
     await update.message.reply_text(
         t(chat_key, "confirmar_pista_msg").format(pista=esc(texto)),
         parse_mode="MarkdownV2",
