@@ -192,6 +192,17 @@ TEXTOS = {
             "- Estar numeradas como 1. y 2.\n"
             "Responde SOLO con las 2 pistas, sin explicaciones."
         ),
+        "cat_custom":               "⭐ Personalizado",
+        "addword_ok":               "✅ Palabra *{palabra}* agregada a la categoría personalizada\\.",
+        "addword_ya_existe":        "⚠️ *{palabra}* ya está en la lista\\.",
+        "addword_uso":              "⚠️ Uso: `/addword <palabra>`",
+        "addword_solo_admin":       "⚠️ Solo los administradores pueden agregar palabras.",
+        "words_lista":              "⭐ *Palabras personalizadas* \\({n}\\):\n\n{lista}\n\n_Usa /addword para agregar más\\._",
+        "words_vacia":              "📭 No hay palabras personalizadas aún\\.\n\nUsa `/addword <palabra>` para agregar\\.",
+        "removeword_ok":            "🗑️ Palabra *{palabra}* eliminada\\.",
+        "removeword_no_existe":     "⚠️ *{palabra}* no está en la lista\\.",
+        "removeword_solo_admin":    "⚠️ Solo los administradores pueden eliminar palabras.",
+        "removeword_uso":           "⚠️ Uso: `/removeword <palabra>`",
     },
     "en": {
         # cmd_start
@@ -354,6 +365,17 @@ TEXTOS = {
             "- Be numbered as 1. and 2.\n"
             "Reply ONLY with the 2 clues, no explanations."
         ),
+        "cat_custom":               "⭐ Custom",
+        "addword_ok":               "✅ Word *{palabra}* added to the custom category\\.",
+        "addword_ya_existe":        "⚠️ *{palabra}* is already in the list\\.",
+        "addword_uso":              "⚠️ Usage: `/addword <word>`",
+        "addword_solo_admin":       "⚠️ Only admins can add words.",
+        "words_lista":              "⭐ *Custom words* \\({n}\\):\n\n{lista}\n\n_Use /addword to add more\\._",
+        "words_vacia":              "📭 No custom words yet\\.\n\nUse `/addword <word>` to add some\\.",
+        "removeword_ok":            "🗑️ Word *{palabra}* removed\\.",
+        "removeword_no_existe":     "⚠️ *{palabra}* is not in the list\\.",
+        "removeword_solo_admin":    "⚠️ Only admins can remove words.",
+        "removeword_uso":           "⚠️ Usage: `/removeword <word>`",
     }
 }
 
@@ -964,9 +986,14 @@ def t(chat_key: str, key: str) -> str:
     return TEXTOS[lang][key]
 
 def cats(chat_key: str) -> dict:
-    """Devuelve las categorías en el idioma del grupo."""
+    """Devuelve las categorías en el idioma del grupo, incluyendo Personalizado si hay palabras."""
     lang = get_idioma(chat_key)
-    return CATEGORIAS[lang]
+    categorias = dict(CATEGORIAS[lang])
+    palabras_custom = get_palabras_custom(chat_key)
+    if palabras_custom:
+        nombre_cat = TEXTOS[lang]["cat_custom"]
+        categorias[nombre_cat] = palabras_custom
+    return categorias
 
 def elegir_palabra(chat_key: str, categoria: str, palabras: list) -> str:
     """
@@ -1059,6 +1086,12 @@ def init_db():
             chat_key    TEXT PRIMARY KEY,
             idioma      TEXT DEFAULT 'es'
         );
+        CREATE TABLE IF NOT EXISTS palabras_custom (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key    TEXT,
+            palabra     TEXT,
+            UNIQUE(chat_key, palabra)
+        );
     """)
     conn.commit()
     conn.close()
@@ -1077,6 +1110,35 @@ def set_idioma(chat_key: str, idioma: str):
             "INSERT OR REPLACE INTO config (chat_key, idioma) VALUES (?,?)",
             (chat_key, idioma)
         )
+
+def get_palabras_custom(chat_key: str) -> list:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT palabra FROM palabras_custom WHERE chat_key=? ORDER BY id",
+            (chat_key,)
+        ).fetchall()
+    return [r[0] for r in rows]
+
+def add_palabra_custom(chat_key: str, palabra: str) -> bool:
+    """Retorna True si se agregó, False si ya existía."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO palabras_custom (chat_key, palabra) VALUES (?,?)",
+                (chat_key, palabra)
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+def remove_palabra_custom(chat_key: str, palabra: str) -> bool:
+    """Retorna True si se eliminó, False si no existía."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "DELETE FROM palabras_custom WHERE chat_key=? AND palabra=?",
+            (chat_key, palabra)
+        ).rowcount
+    return rows > 0
 
 def get_partida(chat_key):
     with get_conn() as conn:
@@ -2216,6 +2278,89 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(t(chat_key, "cancelado"), parse_mode="MarkdownV2")
 
 
+async def cmd_addword(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+    chat = update.effective_chat
+
+    try:
+        member = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    if not es_admin:
+        await update.message.reply_text(t(chat_key, "addword_solo_admin"))
+        return
+
+    if not ctx.args:
+        await update.message.reply_text(t(chat_key, "addword_uso"), parse_mode="MarkdownV2")
+        return
+
+    palabra = " ".join(ctx.args).strip()
+    agregada = add_palabra_custom(chat_key, palabra)
+
+    if agregada:
+        await update.message.reply_text(
+            t(chat_key, "addword_ok").format(palabra=esc(palabra)),
+            parse_mode="MarkdownV2"
+        )
+    else:
+        await update.message.reply_text(
+            t(chat_key, "addword_ya_existe").format(palabra=esc(palabra)),
+            parse_mode="MarkdownV2"
+        )
+
+
+async def cmd_removeword(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+    chat = update.effective_chat
+
+    try:
+        member = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    if not es_admin:
+        await update.message.reply_text(t(chat_key, "removeword_solo_admin"))
+        return
+
+    if not ctx.args:
+        await update.message.reply_text(t(chat_key, "removeword_uso"), parse_mode="MarkdownV2")
+        return
+
+    palabra = " ".join(ctx.args).strip()
+    eliminada = remove_palabra_custom(chat_key, palabra)
+
+    if eliminada:
+        await update.message.reply_text(
+            t(chat_key, "removeword_ok").format(palabra=esc(palabra)),
+            parse_mode="MarkdownV2"
+        )
+    else:
+        await update.message.reply_text(
+            t(chat_key, "removeword_no_existe").format(palabra=esc(palabra)),
+            parse_mode="MarkdownV2"
+        )
+
+
+async def cmd_words(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    palabras = get_palabras_custom(chat_key)
+
+    if not palabras:
+        await update.message.reply_text(t(chat_key, "words_vacia"), parse_mode="MarkdownV2")
+        return
+
+    lista = "\n".join(f"  {i+1}\\. {esc(p)}" for i, p in enumerate(palabras))
+    await update.message.reply_text(
+        t(chat_key, "words_lista").format(n=len(palabras), lista=lista),
+        parse_mode="MarkdownV2"
+    )
+
+
 
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
@@ -2288,6 +2433,9 @@ def main():
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
     app.add_handler(CommandHandler("language",        cmd_idioma))
     app.add_handler(CommandHandler("all",               cmd_all))
+    app.add_handler(CommandHandler("addword",           cmd_addword))
+    app.add_handler(CommandHandler("removeword",        cmd_removeword))
+    app.add_handler(CommandHandler("words",             cmd_words))
 
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
