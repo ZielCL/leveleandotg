@@ -2224,6 +2224,11 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         turno_data.pop("pista_pendiente", None)
         intentos[user.id] = 0
 
+        # Cancelar timer activo
+        tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+        if tarea:
+            tarea.cancel()
+
         turno_data["ya_dieron_pista"].add(user.id)
         siguiente_index = index + 1
         turno_data["index"] = siguiente_index
@@ -2528,6 +2533,10 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if partida[8] != user.id:
         await update.message.reply_text(t(chat_key, "solo_creador_cancelar"))
         return
+
+    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+    if tarea:
+        tarea.cancel()
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
