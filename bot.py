@@ -175,6 +175,7 @@ TEXTOS = {
         "col_jugador":              "Jugador",
         "solo_admin_reset":         "⚠️ Solo los administradores del grupo pueden resetear los puntajes.",
         "reset_ok":                 "🔄 *Puntajes reseteados\\.*\n\nTodas las victorias y derrotas vuelven a cero\\. ¡A empezar de nuevo\\! 🎮",
+        "resetroles_ok":            "🔄 *Roles reseteados\\.*\n\nTodos los contadores de impostor e inocente vuelven a cero\\. 🎭",
         "sin_partida_activa":       "⚠️ No hay ninguna partida activa.",
         "solo_creador_cancelar":    "⚠️ Solo el creador puede cancelar la partida.",
         "cancelado":                "❌ Partida cancelada\\. Usa /playimpostor para empezar otra\\.",
@@ -354,6 +355,7 @@ TEXTOS = {
         "col_jugador":              "Player",
         "solo_admin_reset":         "⚠️ Only group admins can reset scores.",
         "reset_ok":                 "🔄 *Scores reset\\.*\n\nAll wins and losses back to zero\\. Let's start fresh\\! 🎮",
+        "resetroles_ok":            "🔄 *Roles reset\\.*\n\nAll impostor and innocent counters back to zero\\. 🎭",
         "sin_partida_activa":       "⚠️ There's no active game.",
         "solo_creador_cancelar":    "⚠️ Only the creator can cancel the game.",
         "cancelado":                "❌ Game cancelled\\. Use /playimpostor to start another\\.",
@@ -2390,6 +2392,30 @@ async def cmd_resetimpostor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(t(chat_key, "reset_ok"), parse_mode="MarkdownV2")
 
 
+async def cmd_resetroles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+    chat = update.effective_chat
+
+    try:
+        member = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    if not es_admin:
+        await update.message.reply_text(t(chat_key, "solo_admin_reset"))
+        return
+
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET veces_impostor=0, veces_inocente=0, victorias_impostor=0, victorias_inocente=0 WHERE chat_key=?",
+            (chat_key,)
+        )
+
+    await update.message.reply_text(t(chat_key, "resetroles_ok"), parse_mode="MarkdownV2")
+
+
 async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
@@ -2507,23 +2533,22 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(chat_key, "roles_sin_datos"), parse_mode="MarkdownV2")
         return
 
-    header = t(chat_key, "roles_tabla_header")
     col = t(chat_key, "col_jugador")
-
-    # Encabezado de columnas
-    # #   Jugador   😈  W   😇  W
-    col_header = f"`#   {col:<6}  😈  W    😇  W`"
-    sep        = f"`{'─' * 28}`"
-
-    filas = [header, col_header, sep]
+    # Imp = veces como impostor, W = victorias como impostor
+    # Ino = veces como inocente, W = victorias como inocente
+    encabezado = f"#   {col:<6}  Imp  W   Ino  W"
+    separador  = "─" * len(encabezado)
+    lineas = [encabezado, separador]
     for i, j in enumerate(jugadores, 1):
         nom = limpiar_nombre_tabla(j[0])
         vi = j[1]; ino = j[2]; wvi = j[3]; wino = j[4]
-        filas.append(
-            f"`{i:<3} {nom:<6}` *{vi}*` {wvi:<4}`*{ino}*` {wino}`"
-        )
+        lineas.append(f"{i:<3} {nom:<6}  {vi:<4} {wvi:<4} {ino:<4} {wino}")
 
-    await update.message.reply_text("\n".join(filas), parse_mode="MarkdownV2")
+    tabla = "```\n" + "\n".join(lineas) + "\n```"
+    await update.message.reply_text(
+        t(chat_key, "roles_tabla").format(tabla=tabla),
+        parse_mode="MarkdownV2"
+    )
 
 
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2595,6 +2620,7 @@ def main():
     app.add_handler(CommandHandler("cancel",      cmd_cancelar))
     app.add_handler(CommandHandler("howtoplay",     cmd_como_jugar))
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
+    app.add_handler(CommandHandler("resetroles",    cmd_resetroles))
     app.add_handler(CommandHandler("language",        cmd_idioma))
     app.add_handler(CommandHandler("all",               cmd_all))
     app.add_handler(CommandHandler("roles",             cmd_roles))
