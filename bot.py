@@ -4,6 +4,7 @@ Juego donde todos reciben la misma palabra excepto el impostor.
 Soporte de idiomas: Español / English
 """
 
+import asyncio
 import logging
 import random
 import sqlite3
@@ -131,7 +132,9 @@ TEXTOS = {
         "aviso_2rondas":            "Esta partida se juega en *2 rondas* de pistas antes de votar\\. ¡Atención\\! 👀",
         "aviso_votar":              "Cuando todos hayan dado su pista, el creador abre la votación 🗳️",
         "partida_comienza":         "🎮 *¡La partida comienza\\!*\n\n{cat}\n\n*🎲 Orden de pistas \\(elegido al azar\\):*\n{orden}\n\nCada uno da *una pista* sobre la palabra sin decirla directamente\\.\n{aviso_rondas}",
-        "turno":                    "👆 *¡Es el turno de* [{nombre}](tg://user?id={uid})\\!\nEscribe tu pista en el chat\\.",
+        "turno":                    "👆 *¡Es el turno de* [{nombre}](tg://user?id={uid})\\!\nEscribe tu pista en el chat\\.\n⏱️ _Tienes 1 minuto\\._",
+        "turno_timeout":            "⏰ *¡Tiempo\\!* [{nombre}](tg://user?id={uid}) no dio pista a tiempo\\. Se salta su turno\\.",
+        "turno_timeout_autoconf":   "⏰ *¡Tiempo\\!* Se confirmó automáticamente la última pista de [{nombre}](tg://user?id={uid})\\.",
         "quien_es_impostor":        "🗳️ *¿Quién es el impostor\\?*\n\n_Jugadores vivos \\({n}\\) — solo ellos votan:_",
         "no_partida_curso":         "⚠️ No hay partida en curso.",
         "solo_creador_votar":       "⚠️ Solo el creador puede abrir la votación.",
@@ -311,7 +314,9 @@ TEXTOS = {
         "aviso_2rondas":            "This game is played in *2 clue rounds* before voting\\. Pay attention\\! 👀",
         "aviso_votar":              "When everyone has given their clue, the creator opens voting 🗳️",
         "partida_comienza":         "🎮 *The game begins\\!*\n\n{cat}\n\n*🎲 Clue order \\(randomly chosen\\):*\n{orden}\n\nEach player gives *one clue* about the word without saying it directly\\.\n{aviso_rondas}",
-        "turno":                    "👆 *It's* [{nombre}](tg://user?id={uid})*'s turn\\!*\nWrite your clue in the chat\\.",
+        "turno":                    "👆 *It's* [{nombre}](tg://user?id={uid})*'s turn\\!*\nWrite your clue in the chat\\.\n⏱️ _You have 1 minute\\._",
+        "turno_timeout":            "⏰ *Time's up\\!* [{nombre}](tg://user?id={uid}) didn't give a clue in time\\. Skipping their turn\\.",
+        "turno_timeout_autoconf":   "⏰ *Time's up\\!* [{nombre}](tg://user?id={uid})'s last clue was automatically confirmed\\.",
         "quien_es_impostor":        "🗳️ *Who is the impostor\\?*\n\n_Alive players \\({n}\\) — only they vote:_",
         "no_partida_curso":         "⚠️ There's no game in progress.",
         "solo_creador_votar":       "⚠️ Only the creator can open voting.",
@@ -1598,15 +1603,7 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
     primer = orden[0]
-    await ctx.bot.send_message(
-        chat_id,
-        t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]),
-        parse_mode="MarkdownV2",
-        message_thread_id=thread_id
-    )
-
-
-async def _abrir_votacion(chat_key, ctx, message):
+    await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
     vivos_ids = get_vivos(chat_key)
     jugadores = get_jugadores_activos(chat_key)
     vivos = [j for j in jugadores if j[0] in vivos_ids]
@@ -1903,6 +1900,110 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
     await _nueva_ronda_pistas(chat_key, ctx, todos_jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
 
 
+TIMER_TURNO_SEGUNDOS = 60
+
+async def _timer_turno(chat_key, user_id, chat_id, thread_id, ctx):
+    """Callback que se ejecuta cuando expira el tiempo de turno."""
+    await asyncio.sleep(TIMER_TURNO_SEGUNDOS)
+
+    turno_data = ctx.bot_data.get(f"turno_{chat_key}")
+    if not turno_data:
+        return
+    orden = turno_data["orden"]
+    index = turno_data["index"]
+    # Si ya no es el turno de este jugador, ignorar
+    if index >= len(orden) or orden[index] != user_id:
+        return
+
+    jugadores = get_jugadores_activos(chat_key)
+    nombre_j = next((j[1] for j in jugadores if j[0] == user_id), "?")
+
+    pista_pendiente = turno_data.pop("pista_pendiente", None)
+
+    if pista_pendiente:
+        # Tenía algo escrito → auto-confirmar
+        await ctx.bot.send_message(
+            chat_id,
+            t(chat_key, "turno_timeout_autoconf").format(nombre=esc(nombre_j), uid=user_id),
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+        await ctx.bot.send_message(
+            chat_id,
+            f"💬 *{esc(nombre_j)}*: *{esc(pista_pendiente)}*",
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+    else:
+        # No escribió nada → saltar turno
+        await ctx.bot.send_message(
+            chat_id,
+            t(chat_key, "turno_timeout").format(nombre=esc(nombre_j), uid=user_id),
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+
+    turno_data["ya_dieron_pista"].add(user_id)
+    siguiente_index = index + 1
+    turno_data["index"] = siguiente_index
+    turno_data.setdefault("intentos_pista", {})[user_id] = 0
+
+    if siguiente_index >= len(orden):
+        ronda_pistas = turno_data.get("ronda_pistas", 1)
+        jugadores_iniciales = turno_data.get("jugadores_iniciales", len(orden))
+
+        if jugadores_iniciales == 3 and ronda_pistas == 1:
+            ctx.bot_data.pop(f"turno_{chat_key}", None)
+            vivos_ids = get_vivos(chat_key)
+            vivos = [j for j in jugadores if j[0] in vivos_ids]
+            nuevo_orden = list(vivos)
+            random.shuffle(nuevo_orden)
+            turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(nuevo_orden))
+            ctx.bot_data[f"turno_{chat_key}"] = {
+                "orden": [j[0] for j in nuevo_orden],
+                "index": 0,
+                "ya_dieron_pista": set(),
+                "ronda_pistas": 2,
+                "jugadores_iniciales": jugadores_iniciales,
+                "intentos_pista": {}
+            }
+            await ctx.bot.send_message(chat_id, t(chat_key, "segunda_ronda").format(orden=turno_lista), parse_mode="MarkdownV2", message_thread_id=thread_id)
+            primer = nuevo_orden[0]
+            await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
+            return
+
+        ctx.bot_data.pop(f"turno_{chat_key}", None)
+        await ctx.bot.send_message(
+            chat_id, t(chat_key, "todos_dieron_pista"), parse_mode="MarkdownV2",
+            message_thread_id=thread_id,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")]])
+        )
+        return
+
+    siguiente_id = orden[siguiente_index]
+    nombre_sig = next((j[1] for j in jugadores if j[0] == siguiente_id), "?")
+    await _anunciar_turno(chat_key, siguiente_id, nombre_sig, chat_id, thread_id, ctx)
+
+
+async def _anunciar_turno(chat_key, user_id, nombre_j, chat_id, thread_id, ctx):
+    """Anuncia el turno e inicia el timer de 1 minuto."""
+    # Cancelar timer anterior si existe
+    tarea_anterior = ctx.bot_data.pop(f"timer_{chat_key}", None)
+    if tarea_anterior:
+        tarea_anterior.cancel()
+
+    await ctx.bot.send_message(
+        chat_id,
+        t(chat_key, "turno").format(nombre=esc(nombre_j), uid=user_id),
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
+    )
+
+    # Iniciar nuevo timer
+    tarea = asyncio.create_task(_timer_turno(chat_key, user_id, chat_id, thread_id, ctx))
+    ctx.bot_data[f"timer_{chat_key}"] = tarea
+
+
 async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_set, palabra, categoria, message):
     vivos = [j for j in jugadores if j[0] in vivos_ids]
     orden = list(vivos)
@@ -1927,10 +2028,9 @@ async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_
     )
 
     primer = orden[0]
-    await message.reply_text(
-        t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]),
-        parse_mode="MarkdownV2"
-    )
+    chat_id = message.chat.id
+    thread_id = get_thread_id(chat_key)
+    await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
 
 
 async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1951,6 +2051,11 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer(t(chat_key, "pista_confirmada"))
+
+    # Cancelar timer activo
+    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+    if tarea:
+        tarea.cancel()
 
     pista_texto = turno_data.pop("pista_pendiente", None)
     turno_data.setdefault("intentos_pista", {})[user.id] = 0  # resetear contador
@@ -2000,12 +2105,7 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 message_thread_id=thread_id
             )
             primer = nuevo_orden[0]
-            await ctx.bot.send_message(
-                chat_id,
-                t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]),
-                parse_mode="MarkdownV2",
-                message_thread_id=thread_id
-            )
+            await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
             return
 
         ctx.bot_data.pop(f"turno_{chat_key}", None)
@@ -2024,12 +2124,7 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     jugadores = get_jugadores_activos(chat_key)
     nombre_siguiente = next((j[1] for j in jugadores if j[0] == siguiente_id), "?")
 
-    await ctx.bot.send_message(
-        chat_id,
-        t(chat_key, "turno").format(nombre=esc(nombre_siguiente), uid=siguiente_id),
-        parse_mode="MarkdownV2",
-        message_thread_id=thread_id
-    )
+    await _anunciar_turno(chat_key, siguiente_id, nombre_siguiente, chat_id, thread_id, ctx)
 
 
 async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2164,7 +2259,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 }
                 await ctx.bot.send_message(chat_id, t(chat_key, "segunda_ronda").format(orden=turno_lista), parse_mode="MarkdownV2", message_thread_id=thread_id)
                 primer = nuevo_orden[0]
-                await ctx.bot.send_message(chat_id, t(chat_key, "turno").format(nombre=esc(primer[1]), uid=primer[0]), parse_mode="MarkdownV2", message_thread_id=thread_id)
+                await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
                 return
 
             ctx.bot_data.pop(f"turno_{chat_key}", None)
@@ -2178,7 +2273,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         siguiente_id = orden[siguiente_index]
         jugadores_frescos = get_jugadores_activos(chat_key)
         nombre_siguiente = next((j[1] for j in jugadores_frescos if j[0] == siguiente_id), "?")
-        await ctx.bot.send_message(chat_id, t(chat_key, "turno").format(nombre=esc(nombre_siguiente), uid=siguiente_id), parse_mode="MarkdownV2", message_thread_id=thread_id)
+        await _anunciar_turno(chat_key, siguiente_id, nombre_siguiente, chat_id, thread_id, ctx)
         return
 
     await update.message.reply_text(
@@ -2251,6 +2346,9 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
 
 
 async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
+    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+    if tarea:
+        tarea.cancel()
     impostor_ids_set = set(j[0] for j in impostores)
     for j in jugadores:
         if j[0] not in impostor_ids_set:
@@ -2280,6 +2378,9 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
 
 
 async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message, razon=None):
+    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+    if tarea:
+        tarea.cancel()
     impostor_ids_set = set(j[0] for j in impostores)
     for imp in impostores:
         sumar_victoria(chat_key, imp[0])
