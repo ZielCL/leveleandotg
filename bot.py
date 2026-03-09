@@ -2303,9 +2303,10 @@ def limpiar_nombre_tabla(nombre):
         if cat.startswith("S") or cat.startswith("C"):
             continue
         resultado += c
-    return resultado.strip()[:14] or nombre[:14]
+    return resultado.strip()[:6] or nombre[:6]
 
 def formatear_tabla(chat_key, jugadores):
+    MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
     filas = []
     for j in jugadores:
         nombre_j = limpiar_nombre_tabla(j[1])
@@ -2313,16 +2314,20 @@ def formatear_tabla(chat_key, jugadores):
         d = j[3]
         balance = v - d
         bal_str = f"+{balance}" if balance > 0 else str(balance)
-        filas.append((nombre_j, v, d, bal_str))
+        total = v + d
+        win_str = f"{round(v/total*100)}%" if total > 0 else "-%"
+        filas.append((nombre_j, v, d, bal_str, win_str))
 
     col = t(chat_key, "col_jugador")
-    max_nombre = max(len(f[0]) for f in filas)
-    max_nombre = max(max_nombre, len(col))
-    encabezado = f"#   {col:<{max_nombre}}  V    D   Bal"
+    max_nombre = 6
+    encabezado = f"    {col:<{max_nombre}}  V    D   Bal  Win"
     separador  = "─" * len(encabezado)
     lineas = [encabezado, separador]
-    for i, (nombre_j, v, d, bal) in enumerate(filas, 1):
-        lineas.append(f"{i:<3} {nombre_j:<{max_nombre}}  {v:<4} {d:<4} {bal}")
+    for i, (nombre_j, v, d, bal, win) in enumerate(filas, 1):
+        prefijo = MEDALLAS.get(i, f"{i:<3} ")
+        # Las medallas ocupan 2 chars visibles pero son 1 emoji → ajustar padding
+        pad = " " if i in MEDALLAS else ""
+        lineas.append(f"{prefijo}{pad}{nombre_j:<{max_nombre}}  {v:<4} {d:<4} {bal:<5}{win}")
     return "```\n" + "\n".join(lineas) + "\n```"
 
 
