@@ -205,9 +205,10 @@ TEXTOS = {
         "removeword_solo_admin":    "⚠️ Solo los administradores pueden eliminar palabras.",
         "removeword_uso":           "⚠️ Uso: `/removeword <palabra>`",
         "roles_tabla":              "🎭 *Roles por jugador:*\n\n{tabla}",
+        "roles_tabla_header":       "🎭 *Roles por jugador:*",
         "roles_sin_datos":          "📊 No hay datos de roles aún\\. ¡Juega primero\\!",
-        "col_impostor":             "Imp",
-        "col_inocente":             "Ino",
+        "col_impostor":             "😈",
+        "col_inocente":             "😇",
     },
     "en": {
         # cmd_start
@@ -383,9 +384,10 @@ TEXTOS = {
         "removeword_solo_admin":    "⚠️ Only admins can remove words.",
         "removeword_uso":           "⚠️ Usage: `/removeword <word>`",
         "roles_tabla":              "🎭 *Roles per player:*\n\n{tabla}",
+        "roles_tabla_header":       "🎭 *Roles per player:*",
         "roles_sin_datos":          "📊 No role data yet\\. Play first\\!",
-        "col_impostor":             "Imp",
-        "col_inocente":             "Ino",
+        "col_impostor":             "😈",
+        "col_inocente":             "😇",
     }
 }
 
@@ -1078,6 +1080,8 @@ def init_db():
             derrotas        INTEGER DEFAULT 0,
             veces_impostor  INTEGER DEFAULT 0,
             veces_inocente  INTEGER DEFAULT 0,
+            victorias_impostor INTEGER DEFAULT 0,
+            victorias_inocente INTEGER DEFAULT 0,
             UNIQUE(chat_key, user_id)
         );
         CREATE TABLE IF NOT EXISTS partida_jugadores (
@@ -1107,7 +1111,7 @@ def init_db():
     """)
     conn.commit()
     # Migración: agregar columnas nuevas si no existen (DBs antiguas)
-    for col, default in [("veces_impostor", 0), ("veces_inocente", 0)]:
+    for col, default in [("veces_impostor", 0), ("veces_inocente", 0), ("victorias_impostor", 0), ("victorias_inocente", 0)]:
         try:
             conn.execute(f"ALTER TABLE jugadores ADD COLUMN {col} INTEGER DEFAULT {default}")
             conn.commit()
@@ -1233,6 +1237,20 @@ def sumar_vez_inocente(chat_key, user_id):
     with get_conn() as conn:
         conn.execute(
             "UPDATE jugadores SET veces_inocente = veces_inocente + 1 WHERE chat_key=? AND user_id=?",
+            (chat_key, user_id)
+        )
+
+def sumar_victoria_impostor(chat_key, user_id):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET victorias_impostor = victorias_impostor + 1 WHERE chat_key=? AND user_id=?",
+            (chat_key, user_id)
+        )
+
+def sumar_victoria_inocente(chat_key, user_id):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET victorias_inocente = victorias_inocente + 1 WHERE chat_key=? AND user_id=?",
             (chat_key, user_id)
         )
 
@@ -2235,6 +2253,7 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
     for j in jugadores:
         if j[0] not in impostor_ids_set:
             sumar_victoria(chat_key, j[0])
+            sumar_victoria_inocente(chat_key, j[0])
     for imp in impostores:
         sumar_derrota(chat_key, imp[0])
 
@@ -2262,6 +2281,7 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     impostor_ids_set = set(j[0] for j in impostores)
     for imp in impostores:
         sumar_victoria(chat_key, imp[0])
+        sumar_victoria_impostor(chat_key, imp[0])
     for j in jugadores:
         if j[0] not in impostor_ids_set:
             sumar_derrota(chat_key, j[0])
@@ -2475,7 +2495,8 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     with get_conn() as conn:
         jugadores = conn.execute(
-            """SELECT username, veces_impostor, veces_inocente
+            """SELECT username, veces_impostor, veces_inocente,
+                      victorias_impostor, victorias_inocente
                FROM jugadores
                WHERE chat_key=? AND (veces_impostor > 0 OR veces_inocente > 0)
                ORDER BY (veces_impostor + veces_inocente) DESC""",
@@ -2486,25 +2507,23 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(chat_key, "roles_sin_datos"), parse_mode="MarkdownV2")
         return
 
+    header = t(chat_key, "roles_tabla_header")
     col = t(chat_key, "col_jugador")
-    col_imp = t(chat_key, "col_impostor")
-    col_ino = t(chat_key, "col_inocente")
 
-    filas = [(limpiar_nombre_tabla(j[0]), j[1], j[2]) for j in jugadores]
-    max_nombre = max(len(f[0]) for f in filas)
-    max_nombre = max(max_nombre, len(col))
+    # Encabezado de columnas
+    # #   Jugador   😈  W   😇  W
+    col_header = f"`#   {col:<6}  😈  W    😇  W`"
+    sep        = f"`{'─' * 28}`"
 
-    encabezado = f"#   {col:<{max_nombre}}  {col_imp:<5}{col_ino}"
-    separador  = "─" * len(encabezado)
-    lineas = [encabezado, separador]
-    for i, (nom, imp, ino) in enumerate(filas, 1):
-        lineas.append(f"{i:<3} {nom:<{max_nombre}}  {imp:<5}{ino}")
+    filas = [header, col_header, sep]
+    for i, j in enumerate(jugadores, 1):
+        nom = limpiar_nombre_tabla(j[0])
+        vi = j[1]; ino = j[2]; wvi = j[3]; wino = j[4]
+        filas.append(
+            f"`{i:<3} {nom:<6}` *{vi}*` {wvi:<4}`*{ino}*` {wino}`"
+        )
 
-    tabla = "```\n" + "\n".join(lineas) + "\n```"
-    await update.message.reply_text(
-        t(chat_key, "roles_tabla").format(tabla=tabla),
-        parse_mode="MarkdownV2"
-    )
+    await update.message.reply_text("\n".join(filas), parse_mode="MarkdownV2")
 
 
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
