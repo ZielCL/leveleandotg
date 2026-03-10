@@ -32,14 +32,8 @@ _FONT_DOWNLOAD_LIST = [
         "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
         "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
     ]),
-    (_DEJAVU_REGULAR, [
-        "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans.ttf",
-        "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf",
-    ]),
-    (_DEJAVU_BOLD, [
-        "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans-Bold.ttf",
-        "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf",
-    ]),
+    (_DEJAVU_REGULAR, []),
+    (_DEJAVU_BOLD, []),
 ]
 
 def _init_fonts():
@@ -2711,7 +2705,7 @@ def generar_imagen_marcador(chat_key, jugadores):
         font       = _get_font(FONT_SIZE)
         font_bold  = _get_font(FONT_SIZE, bold=True)
         font_title = _get_font(26, bold=True)
-
+        logger.info(f"[MARCADOR] NotoSans existe={os.path.exists(_FONT_REGULAR)} size={os.path.getsize(_FONT_REGULAR) if os.path.exists(_FONT_REGULAR) else 0}")
         # Colores
         BG     = (30,  30,  46)
         HEADER = (49,  50,  68)
