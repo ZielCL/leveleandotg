@@ -183,7 +183,7 @@ def _ensure_cmaps():
     _UNIFONT_PATHS = [p for p in [_FONT_UNIFONT, _FONT_UNIFONT_SYS]
                       if p and os.path.exists(p) and os.path.getsize(p) > 10_000]
 
-_cmaps_ready = False  # flag para ensure solo una vez por arranque
+_cmaps_ready = False    # flag para ensure solo una vez por arranque
 
 def draw_text_smart(draw, pos, text: str, size: int, fill):
     """Dibuja texto char a char eligiendo la mejor fuente disponible.
@@ -226,6 +226,7 @@ def draw_text_smart(draw, pos, text: str, size: int, fill):
                     drawn = True
                     break
 
+
         if drawn:
             continue
 
@@ -244,7 +245,7 @@ def draw_text_smart(draw, pos, text: str, size: int, fill):
                     break
 
         if not drawn:
-            # Glifo no disponible en ninguna fuente → avanzar sin dibujar
+            # Glifo no disponible en ninguna fuente → avanzar cursor
             x += size // 2
 
     return x
