@@ -10,6 +10,7 @@ import random
 import sqlite3
 import anthropic
 import io
+import os
 import urllib.request
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
@@ -172,7 +173,6 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 
-import os
 TOKEN = os.environ.get("BOT_TOKEN")
 MAX_JUGADORES = 8
 
