@@ -16,69 +16,45 @@ from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
 # ── Fuentes con cobertura unicode completa ──────────────────────
-_FONT_DIR     = "/data/fonts"
+
+def _get_font_dir():
+    """Retorna directorio escribible para fuentes: /data/fonts o /tmp/fonts."""
+    for d in ["/data/fonts", "/tmp/fonts"]:
+        try:
+            os.makedirs(d, exist_ok=True)
+            # Verificar que es escribible
+            test = os.path.join(d, ".write_test")
+            open(test, "w").close()
+            os.remove(test)
+            return d
+        except Exception:
+            continue
+    return "/tmp"
+
+_FONT_DIR     = _get_font_dir()
 _FONT_REGULAR = f"{_FONT_DIR}/NotoSans-Regular.ttf"
 _FONT_BOLD    = f"{_FONT_DIR}/NotoSans-Bold.ttf"
 _FONT_UNIFONT = f"{_FONT_DIR}/unifont.otf"
-_DEJAVU_REGULAR = f"{_FONT_DIR}/DejaVuSans.ttf"
-_DEJAVU_BOLD    = f"{_FONT_DIR}/DejaVuSans-Bold.ttf"
 
-_FONT_DOWNLOAD_LIST = [
-    (_FONT_UNIFONT, [
-        "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
-        "https://github.com/nicowillis/fonts/raw/master/Unifont.ttf",
-    ]),
-    (_FONT_REGULAR, [
-        "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
-        "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
-    ]),
-    (_FONT_BOLD, [
-        "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
-        "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
-    ]),
-    (_DEJAVU_REGULAR, []),
-    (_DEJAVU_BOLD, []),
-]
+# Fuentes del sistema (Ubuntu/Debian — disponibles en Render si se instalan)
+_FONT_UNIFONT_SYS  = "/usr/share/fonts/opentype/unifont/unifont.otf"
+_FONT_FREESERIF    = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"
+_FONT_FREESANS     = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+_FONT_FREESANSBOLD = "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+_FONT_DEJAVUSANS   = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_FONT_DEJAVUBOLD   = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_FONT_CJK_REGULAR  = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+_FONT_CJK_BOLD     = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 
-def _init_fonts():
-    """Descarga todas las fuentes necesarias al arrancar."""
-    _log = logging.getLogger(__name__)
-    os.makedirs(_FONT_DIR, exist_ok=True)
-    for dest, urls in _FONT_DOWNLOAD_LIST:
-        if os.path.exists(dest) and os.path.getsize(dest) > 50_000:
-            _log.info(f"Fuente OK (cache): {dest} ({os.path.getsize(dest)//1024}KB)")
-            continue
-        for url in urls:
-            try:
-                _log.info(f"Descargando fuente: {url}")
-                urllib.request.urlretrieve(url, dest)
-                size = os.path.getsize(dest)
-                if size > 50_000:
-                    _log.info(f"Fuente descargada: {dest} ({size//1024}KB)")
-                    break
-                else:
-                    _log.warning(f"Archivo muy pequeño ({size}B), reintentando...")
-                    os.remove(dest)
-            except Exception as e:
-                _log.warning(f"Falló {url}: {e}")
-        else:
-            _log.error(f"No se pudo descargar: {dest}")
-
-_FONT_CJK_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
-_FONT_CJK_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-_FONT_UNIFONT_SYS = "/usr/share/fonts/opentype/unifont/unifont.otf"
-_FONT_FREESERIF   = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"
-_FONT_FREESANS    = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
-_FONT_FREESANSBOLD= "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
-_FONT_DEJAVUSANS  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-_FONT_DEJAVUBOLD  = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-# Orden de fuentes a probar para cada carácter (de mayor a menor cobertura unicode)
+# Prioridad de fuentes para nombres de usuario
+# Unifont cubre BMP (runas, syllabics, coreano, etc.)
+# FreeSerif cubre SMP matemático (U+1D400-U+1D7FF)
+# Ambas son necesarias para cobertura completa
 _RENDER_FONT_PRIORITY = [
-    _FONT_UNIFONT,        # descargado — cobertura BMP completa
-    _FONT_UNIFONT_SYS,    # sistema — idem
-    _FONT_FREESERIF,      # math unicode, muchos scripts
-    _FONT_CJK_REGULAR,    # CJK/coreano (si existe en Render)
+    _FONT_UNIFONT,       # descargado — BMP completo
+    _FONT_UNIFONT_SYS,   # sistema — BMP completo
+    _FONT_FREESERIF,     # SMP: math alphanumeric, muchos scripts
+    _FONT_CJK_REGULAR,
     _FONT_FREESANS,
     _FONT_DEJAVUSANS,
     _FONT_REGULAR,
@@ -93,13 +69,49 @@ _RENDER_FONT_PRIORITY_BOLD = [
 ]
 
 # Cache: (path, size) → ImageFont
-_font_cache = {}
-# Cache: (codepoint, size) → mejor fuente
-_char_font_cache = {}
-# PUA char para detectar .notdef (ninguna fuente lo asigna)
-_NOTDEF_REF = "\uE000"
+_font_cache: dict = {}
+# Cache: codepoint → path con el glifo
+_codepoint_to_path: dict = {}
+# Cache de cmaps por path: path → set de codepoints
+_font_cmaps: dict = {}
 
-def _load(path, size):
+def _get_font_cmap(path: str) -> set:
+    """Retorna el conjunto de codepoints soportados por la fuente (via fonttools)."""
+    if path in _font_cmaps:
+        return _font_cmaps[path]
+    cmap = set()
+    try:
+        from fontTools.ttLib import TTFont as _TTFont
+        tt = _TTFont(path, fontNumber=0)
+        best = tt.getBestCmap()
+        if best:
+            cmap = set(best.keys())
+        tt.close()
+    except Exception:
+        pass
+    _font_cmaps[path] = cmap
+    return cmap
+
+def _path_has_glyph(path: str, char: str) -> bool:
+    """Verifica via cmap si la fuente tiene el glifo para el carácter."""
+    cmap = _get_font_cmap(path)
+    if cmap:
+        return ord(char) in cmap
+    # Fallback si fonttools no está disponible: comparación pixel
+    f = _load(path, 22)
+    if not f:
+        return False
+    try:
+        _NOTDEF_REF = "\uE000"
+        img_c = Image.new("L", (30, 30), 0)
+        img_r = Image.new("L", (30, 30), 0)
+        ImageDraw.Draw(img_c).text((2, 2), char, font=f, fill=255)
+        ImageDraw.Draw(img_r).text((2, 2), _NOTDEF_REF, font=f, fill=255)
+        return img_c.tobytes() != img_r.tobytes()
+    except Exception:
+        return False
+
+def _load(path: str, size: int):
     """Carga fuente con cache. Retorna None si falla."""
     key = (path, size)
     if key in _font_cache:
@@ -113,39 +125,34 @@ def _load(path, size):
     _font_cache[key] = result
     return result
 
-def _font_has_glyph(font, char):
-    """Retorna True si la fuente renderiza el carácter (no como .notdef)."""
-    try:
-        img_c = Image.new("L", (30, 30), 0)
-        img_r = Image.new("L", (30, 30), 0)
-        ImageDraw.Draw(img_c).text((2, 2), char,          font=font, fill=255)
-        ImageDraw.Draw(img_r).text((2, 2), _NOTDEF_REF,   font=font, fill=255)
-        return img_c.tobytes() != img_r.tobytes()
-    except Exception:
-        return False
-
-def _best_font_for_char(char, size):
+def _best_font_for_char(char: str, size: int):
     """Encuentra la mejor fuente disponible para un carácter específico."""
-    key = (ord(char), size)
-    if key in _char_font_cache:
-        return _char_font_cache[key]
-    for path in _RENDER_FONT_PRIORITY:
-        f = _load(path, size)
-        if f and _font_has_glyph(f, char):
-            _char_font_cache[key] = f
-            return f
-    # Fallback: primera fuente disponible
-    for path in _RENDER_FONT_PRIORITY:
+    cp = ord(char)
+    # Cache por codepoint (el path es independiente del size)
+    if cp not in _codepoint_to_path:
+        best_path = None
+        for path in _RENDER_FONT_PRIORITY:
+            if not (path and os.path.exists(path) and os.path.getsize(path) > 10_000):
+                continue
+            if _path_has_glyph(path, char):
+                best_path = path
+                break
+        _codepoint_to_path[cp] = best_path
+
+    path = _codepoint_to_path[cp]
+    if path:
         f = _load(path, size)
         if f:
-            _char_font_cache[key] = f
             return f
-    result = ImageFont.load_default()
-    _char_font_cache[key] = result
-    return result
+    # Fallback: primera fuente cargable
+    for p in _RENDER_FONT_PRIORITY:
+        f = _load(p, size)
+        if f:
+            return f
+    return ImageFont.load_default()
 
-def _get_font(size, bold=False):
-    """Fuente principal para headers/labels (no nombres de usuario)."""
+def _get_font(size: int, bold: bool = False):
+    """Fuente principal para headers/labels."""
     priority = _RENDER_FONT_PRIORITY_BOLD if bold else _RENDER_FONT_PRIORITY
     for path in priority:
         f = _load(path, size)
@@ -153,7 +160,7 @@ def _get_font(size, bold=False):
             return f
     return ImageFont.load_default()
 
-def draw_text_smart(draw, pos, text, size, fill):
+def draw_text_smart(draw, pos, text: str, size: int, fill):
     """Dibuja texto eligiendo automáticamente la mejor fuente para cada carácter."""
     x, y = pos
     for char in text:
@@ -165,6 +172,78 @@ def draw_text_smart(draw, pos, text, size, fill):
         draw.text((x, y), char, font=font, fill=fill)
         x += max(bbox[2] - bbox[0], 2)
     return x
+
+def _init_fonts():
+    """Descarga fuentes necesarias y loguea el estado del sistema de fuentes."""
+    _log = logging.getLogger(__name__)
+    _log.info(f"[FONTS] Directorio de fuentes: {_FONT_DIR}")
+
+    # Intentar instalar fonts del sistema si no están (solo en Linux con apt)
+    import subprocess
+    sys_fonts_needed = [
+        (_FONT_UNIFONT_SYS, "fonts-unifont"),
+        (_FONT_FREESERIF,   "fonts-freefont-ttf"),
+    ]
+    for path, pkg in sys_fonts_needed:
+        if not os.path.exists(path):
+            _log.info(f"[FONTS] {path} no encontrada, intentando instalar {pkg}...")
+            try:
+                subprocess.run(
+                    ["apt-get", "install", "-y", "--no-install-recommends", pkg],
+                    capture_output=True, timeout=30
+                )
+                if os.path.exists(path):
+                    _log.info(f"[FONTS] ✅ {pkg} instalado correctamente")
+                else:
+                    _log.warning(f"[FONTS] ⚠️ {pkg} no pudo instalarse — agrega al Build Command de Render: apt-get install -y fonts-unifont fonts-freefont-ttf")
+            except Exception as e:
+                _log.warning(f"[FONTS] apt-get falló ({e}) — agrega al Build Command: apt-get install -y fonts-unifont fonts-freefont-ttf")
+
+    # Descargar fuentes si no existen
+    DOWNLOAD_LIST = [
+        (_FONT_UNIFONT, [
+            "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
+            "https://github.com/nicowillis/fonts/raw/master/Unifont.ttf",
+        ]),
+        (_FONT_REGULAR, [
+            "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+            "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+        ]),
+        (_FONT_BOLD, [
+            "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+            "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+        ]),
+    ]
+    for dest, urls in DOWNLOAD_LIST:
+        if os.path.exists(dest) and os.path.getsize(dest) > 50_000:
+            _log.info(f"[FONTS] OK (cache): {dest} ({os.path.getsize(dest)//1024}KB)")
+            continue
+        for url in urls:
+            try:
+                _log.info(f"[FONTS] Descargando: {url}")
+                urllib.request.urlretrieve(url, dest)
+                size = os.path.getsize(dest)
+                if size > 50_000:
+                    _log.info(f"[FONTS] ✅ Descargado: {dest} ({size//1024}KB)")
+                    break
+                os.remove(dest)
+            except Exception as e:
+                _log.warning(f"[FONTS] Falló {url}: {e}")
+        else:
+            _log.warning(f"[FONTS] No se pudo descargar: {os.path.basename(dest)}")
+
+    # Loguear estado final de todas las fuentes
+    all_paths = _RENDER_FONT_PRIORITY + _RENDER_FONT_PRIORITY_BOLD
+    for p in dict.fromkeys(all_paths):  # deduplicar
+        exists = p and os.path.exists(p)
+        size_kb = os.path.getsize(p)//1024 if exists else 0
+        _log.info(f"[FONTS] {'✅' if exists else '❌'} {os.path.basename(p) if p else '?'} ({size_kb}KB)")
+
+    # Pre-calentar cmap de las fuentes disponibles
+    for p in _RENDER_FONT_PRIORITY:
+        if p and os.path.exists(p) and os.path.getsize(p) > 10_000:
+            cmap = _get_font_cmap(p)
+            _log.info(f"[FONTS] cmap {os.path.basename(p)}: {len(cmap)} codepoints")
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
