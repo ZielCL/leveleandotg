@@ -2109,17 +2109,18 @@ async def _timer_turno_body(chat_key, user_id, chat_id, thread_id, ctx):
 
 async def _anunciar_turno(chat_key, user_id, nombre_j, chat_id, thread_id, ctx):
     """Anuncia el turno e inicia el timer de 1 minuto."""
-    # Cancelar timer anterior si existe
+    # Cancelar timer anterior si existe, pero nunca el task propio
+    tarea_actual = asyncio.current_task()
     tarea_anterior = ctx.bot_data.pop(f"timer_{chat_key}", None)
-    if tarea_anterior:
+    if tarea_anterior and tarea_anterior is not tarea_actual:
         tarea_anterior.cancel()
 
-    await ctx.bot.send_message(
+    await asyncio.shield(ctx.bot.send_message(
         chat_id,
         t(chat_key, "turno").format(nombre=esc_link(nombre_j), uid=user_id),
         parse_mode="MarkdownV2",
         message_thread_id=thread_id
-    )
+    ))
 
     # Iniciar nuevo timer
     tarea = asyncio.create_task(_timer_turno(chat_key, user_id, chat_id, thread_id, ctx))
