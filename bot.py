@@ -37,6 +37,7 @@ _FONT_BOLD    = f"{_FONT_DIR}/NotoSans-Bold.ttf"
 _FONT_UNIFONT    = f"{_FONT_DIR}/unifont.otf"
 _FONT_FREESERIF_DL = f"{_FONT_DIR}/FreeSerif.ttf"
 _FONT_FREESANS_DL  = f"{_FONT_DIR}/FreeSans.ttf"
+_FONT_CJK_DL       = f"{_FONT_DIR}/NotoSansCJK-Regular.otf"
 
 # Fuentes del sistema (Ubuntu/Debian — disponibles en Render si se instalan)
 _FONT_UNIFONT_SYS  = "/usr/share/fonts/opentype/unifont/unifont.otf"
@@ -63,6 +64,7 @@ _RENDER_FONT_PRIORITY = [
     _FONT_CJK_REGULAR,     # CJK/coreano
     _FONT_FREESERIF,       # SMP math (sistema)
     _FONT_FREESERIF_DL,    # SMP math (descargado)
+    _FONT_CJK_DL,          # NotoSansCJK descargado - Korean/JP/ZH
     _FONT_UNIFONT_SYS,     # Unifont sistema - exoticos BMP
     _FONT_UNIFONT,         # Unifont descargado - ultimo recurso
 ]
@@ -167,64 +169,84 @@ def _get_font(size: int, bold: bool = False):
             return f
     return ImageFont.load_default()
 
-# Cmap de fuentes vectoriales principales (cargados al inicio)
-_CMAP_PRIMARY: set = set()    # DejaVuSans
-_CMAP_SECONDARY: set = set()  # NotoSans
+# Fuentes Unifont (bitmap, solo 16px nativo)
+_UNIFONT_PATHS = []  # se llena en _ensure_cmaps
 
 def _ensure_cmaps():
-    """Carga los cmaps de las fuentes vectoriales principales (llamar una vez)."""
-    global _CMAP_PRIMARY, _CMAP_SECONDARY
-    if not _CMAP_PRIMARY:
-        _CMAP_PRIMARY = _get_font_cmap(_FONT_DEJAVUSANS)
-    if not _CMAP_SECONDARY:
-        # NotoSans puede estar en /data/fonts o en sistema
-        cmap = _get_font_cmap(_FONT_REGULAR)
-        if not cmap:
-            # Fallback: FreeSans sistema (más chars que DejaVu)
-            cmap = _get_font_cmap(_FONT_FREESANS)
-        _CMAP_SECONDARY = cmap
+    """Pre-carga los cmaps de todas las fuentes disponibles."""
+    global _UNIFONT_PATHS
+    # Calentar cmap de todas las fuentes de la lista de prioridad
+    for p in _RENDER_FONT_PRIORITY:
+        if p and os.path.exists(p) and os.path.getsize(p) > 10_000:
+            _get_font_cmap(p)  # pobla _font_cmaps
+    # Recordar paths de Unifont para usarlos a 16px
+    _UNIFONT_PATHS = [p for p in [_FONT_UNIFONT, _FONT_UNIFONT_SYS]
+                      if p and os.path.exists(p) and os.path.getsize(p) > 10_000]
+
+_cmaps_ready = False  # flag para ensure solo una vez por arranque
 
 def draw_text_smart(draw, pos, text: str, size: int, fill):
-    """Dibuja texto mezclando fuentes:
-    - DejaVuSans / NotoSans (vectoriales, tamaño real) para chars cubiertos
-    - Unifont a 16px (bitmap nativo) para chars exóticos — evita cuadrados
+    """Dibuja texto char a char eligiendo la mejor fuente disponible.
+
+    Estrategia:
+    1. Recorre _RENDER_FONT_PRIORITY buscando la primera fuente que tenga el glifo.
+    2. Unifont (bitmap) siempre se renderiza a 16px nativo y se centra verticalmente.
+    3. Si ninguna fuente tiene el glifo, se avanza el cursor sin dibujar.
     """
-    _ensure_cmaps()
+    global _cmaps_ready
+    if not _cmaps_ready:
+        _ensure_cmaps()
+        _cmaps_ready = True
+
+    UNIFONT_NATIVE = 16  # Unifont es bitmap OTF, solo legible a su tamaño nativo
     x, y = pos
-    UNIFONT_NATIVE = 16  # Unifont es bitmap, solo legible a su tamaño nativo
+
+    # Separar paths de Unifont del resto para tratarlos diferente
+    unifont_set = {_FONT_UNIFONT, _FONT_UNIFONT_SYS}
+    vectorial_paths = [p for p in _RENDER_FONT_PRIORITY
+                       if p and p not in unifont_set
+                       and os.path.exists(p) and os.path.getsize(p) > 10_000]
 
     for char in text:
         if char == " ":
             x += size // 3
             continue
         cp = ord(char)
+        drawn = False
 
-        if cp in _CMAP_PRIMARY:
-            # Fuente vectorial principal (DejaVuSans)
-            f = _load(_FONT_DEJAVUSANS, size)
-        elif cp in _CMAP_SECONDARY:
-            # Fuente vectorial secundaria (NotoSans)
-            f = _load(_FONT_REGULAR, size)
-        else:
-            f = None
+        # 1. Intentar fuentes vectoriales primero (calidad completa al tamaño pedido)
+        for path in vectorial_paths:
+            cmap = _font_cmaps.get(path, set())
+            if cp in cmap:
+                f = _load(path, size)
+                if f:
+                    draw.text((x, y), char, font=f, fill=fill)
+                    bb = draw.textbbox((0, 0), char, font=f)
+                    x += max(bb[2] - bb[0], 4)
+                    drawn = True
+                    break
 
-        if f:
-            draw.text((x, y), char, font=f, fill=fill)
-            bb = draw.textbbox((0, 0), char, font=f)
-            x += max(bb[2] - bb[0], 4)
-        else:
-            # Fallback: Unifont a su tamaño nativo 16px
-            f_uni = _load(_FONT_UNIFONT, UNIFONT_NATIVE) or _load(_FONT_UNIFONT_SYS, UNIFONT_NATIVE)
-            if f_uni:
-                y_adj = y + (size - UNIFONT_NATIVE) // 2
-                draw.text((x, y_adj), char, font=f_uni, fill=fill)
-                bb = draw.textbbox((0, 0), char, font=f_uni)
-                # Escalar el avance horizontal para que sea proporcional al size principal
-                char_w = max(bb[2] - bb[0], 4)
-                x += int(char_w * size / UNIFONT_NATIVE * 0.75)
-            else:
-                # Sin fuente disponible, avanzar espacio en blanco
-                x += size // 2
+        if drawn:
+            continue
+
+        # 2. Fallback: Unifont a 16px nativo
+        for uni_path in _UNIFONT_PATHS:
+            cmap = _font_cmaps.get(uni_path, set())
+            if cp in cmap:
+                f = _load(uni_path, UNIFONT_NATIVE)
+                if f:
+                    y_adj = y + (size - UNIFONT_NATIVE) // 2
+                    draw.text((x, y_adj), char, font=f, fill=fill)
+                    bb = draw.textbbox((0, 0), char, font=f)
+                    char_w = max(bb[2] - bb[0], 4)
+                    x += int(char_w * size / UNIFONT_NATIVE * 0.75)
+                    drawn = True
+                    break
+
+        if not drawn:
+            # Glifo no disponible en ninguna fuente → avanzar sin dibujar
+            x += size // 2
+
     return x
 
 def _init_fonts():
@@ -235,8 +257,8 @@ def _init_fonts():
     # Descargar fuentes si no existen en sistema ni en cache
     # Unifont  → BMP completo (runas, syllabics, coreano, etc.)
     # FreeSerif → SMP math alphanumeric (𝓩 𝙄 etc.)
-    # Solo descargamos fuentes que realmente necesitamos y cuyas URLs funcionan.
-    # FreeSerif/FreeSans se omiten (URLs CDN caídas; DejaVuSans cubre los mismos chars).
+    # Fuentes descargadas al /data/fonts para cobertura unicode completa.
+    # CJK (Korean/JP/ZH) necesita NotoSansCJK — vectorial, ~12MB, se persiste en /data/fonts.
     DOWNLOAD_LIST = [
         (_FONT_UNIFONT, [
             "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
@@ -249,6 +271,13 @@ def _init_fonts():
         (_FONT_BOLD, [
             "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
             "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+        ]),
+        # NotoSansCJK: cubre Korean, Japanese, Chinese con calidad vectorial
+        # Intentamos primero Korean-only (~6MB), luego el subset SC (~12MB) como fallback
+        (_FONT_CJK_DL, [
+            "https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf",
+            "https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
+            "https://github.com/googlefonts/noto-cjk/raw/main/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf",
         ]),
     ]
     for dest, urls in DOWNLOAD_LIST:
