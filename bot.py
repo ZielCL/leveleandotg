@@ -1397,6 +1397,24 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer()
+
+    # Verificar condiciones de error y responder con alert popup (solo visible para el usuario)
+    chat_key_check = chat_key
+    partida = get_partida(chat_key_check)
+    if not partida:
+        await query.answer(t(chat_key, "sin_partida"), show_alert=True)
+        return
+    if partida[2] != "esperando":
+        await query.answer(t(chat_key, "partida_en_curso"), show_alert=True)
+        return
+    activos = get_jugadores_activos(chat_key_check)
+    if user.id in [j[0] for j in activos]:
+        await query.answer(t(chat_key, "ya_en_partida"), show_alert=True)
+        return
+    if len(activos) >= MAX_JUGADORES:
+        await query.answer(t(chat_key, "partida_llena").format(n=MAX_JUGADORES), show_alert=True)
+        return
+
     await _unirse(chat_key, user, query.message.reply_text, ctx.bot)
 
 async def _unirse(chat_key, user, reply_fn, bot=None):
