@@ -1952,9 +1952,54 @@ async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
     palabra = datos["palabra"]
     categoria = datos["categoria"]
     detalle_votos = datos["detalle_votos"]
+    impostor_ids_set = datos["impostor_ids_set"]
+    vivos_restantes_ids = datos["vivos_restantes_ids"]
+    impostores_vivos = datos["impostores_vivos"]
+    inocentes_vivos_ids = datos["inocentes_vivos_ids"]
 
     nombre_j = next((j[1] for j in jugadores if j[0] == impostor_id), "?")
 
+    # Si hay un intento pendiente (escribió pero no confirmó), procesarlo automáticamente
+    intento = datos.get("intento")
+    if intento:
+        msg_auto = await ctx.bot.send_message(
+            chat_id,
+            t(chat_key, "pista_auto_confirmada"),
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+        if normalizar(intento) == normalizar(palabra):
+            msg = await ctx.bot.send_message(
+                chat_id,
+                t(chat_key, "adivino").format(nombre=esc(nombre_j), palabra=esc(palabra)),
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
+            )
+            await _fin_impostores_ganan(
+                chat_key, ctx, partida, jugadores, impostores,
+                None, palabra, categoria, detalle_votos, msg
+            )
+        else:
+            msg = await ctx.bot.send_message(
+                chat_id,
+                t(chat_key, "incorrecto").format(nombre=esc(nombre_j), texto=esc(intento.lower())),
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
+            )
+            if not impostores_vivos:
+                await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
+                return
+            inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+            if len(inocentes_restantes) <= 1:
+                await _fin_impostores_ganan(
+                    chat_key, ctx, partida, jugadores, impostores,
+                    None, palabra, categoria, detalle_votos, msg, razon="supervivencia"
+                )
+                return
+            await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
+        return
+
+    # Sin intento → timeout real, el grupo gana
     msg_text = t(chat_key, "adiv_timeout").format(nombre=nombre_j.replace("[","\\[").replace("]","\\]"), uid=impostor_id)
     msg = await ctx.bot.send_message(chat_id, msg_text, parse_mode="MarkdownV2", message_thread_id=thread_id)
 
@@ -2215,17 +2260,37 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         inocentes_vivos_ids = datos["inocentes_vivos_ids"]
         impostor_ids_set = datos["impostor_ids_set"]
 
-        # Guardar intento y mostrar botón de confirmación (igual que pistas)
-        datos["intento"] = texto
-        keyboard = [[InlineKeyboardButton(
-            t(chat_key, "confirmar_adivinanza_btn"),
-            callback_data=f"confirmar_adiv:{user.id}"
-        )]]
-        await update.message.reply_text(
-            t(chat_key, "confirmar_adivinanza_msg").format(palabra=esc(texto)),
-            parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        # Cancelar timer y procesar directamente sin confirmación
+        ctx.bot_data.pop(f"adivinando_{chat_key}", None)
+        tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+        if tarea_adiv:
+            tarea_adiv.cancel()
+
+        chat_id = update.effective_chat.id
+        thread_id = get_thread_id(chat_key)
+
+        async def send(text):
+            return await ctx.bot.send_message(chat_id, text, parse_mode="MarkdownV2", message_thread_id=thread_id)
+
+        if normalizar(texto) == normalizar(palabra):
+            msg = await send(t(chat_key, "adivino").format(nombre=esc(nombre(user)), palabra=esc(palabra)))
+            await _fin_impostores_ganan(
+                chat_key, ctx, partida, jugadores, impostores,
+                None, palabra, categoria, detalle_votos, msg
+            )
+        else:
+            msg = await send(t(chat_key, "incorrecto").format(nombre=esc(nombre(user)), texto=esc(texto.lower())))
+            if not impostores_vivos:
+                await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
+                return
+            inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+            if len(inocentes_restantes) <= 1:
+                await _fin_impostores_ganan(
+                    chat_key, ctx, partida, jugadores, impostores,
+                    None, palabra, categoria, detalle_votos, msg, razon="supervivencia"
+                )
+                return
+            await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
         return
 
     # ── Modo pistas: detectar turno ──
@@ -2440,12 +2505,15 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
     tabla = formatear_tabla(chat_key, marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
-    await message.reply_text(
-        t(chat_key, "grupo_gana").format(
-            impostores=nombres_impostores, palabra=esc(palabra),
-            cat=esc(categoria), tabla=tabla
-        ),
-        parse_mode="MarkdownV2"
+    texto_final = t(chat_key, "grupo_gana").format(
+        impostores=nombres_impostores, palabra=esc(palabra),
+        cat=esc(categoria), tabla=tabla
+    )
+    thread_id = get_thread_id(chat_key)
+    await ctx.bot.send_message(
+        message.chat.id, texto_final,
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
     )
 
 
@@ -2482,12 +2550,15 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     else:
         desc = t(chat_key, "desc_error_voto").format(nombre=esc(eliminado[1]))
 
-    await message.reply_text(
-        t(chat_key, "impostores_ganan").format(
-            impostores=nombres_impostores, desc=desc,
-            palabra=esc(palabra), cat=esc(categoria), tabla=tabla
-        ),
-        parse_mode="MarkdownV2"
+    texto_final = t(chat_key, "impostores_ganan").format(
+        impostores=nombres_impostores, desc=desc,
+        palabra=esc(palabra), cat=esc(categoria), tabla=tabla
+    )
+    thread_id = get_thread_id(chat_key)
+    await ctx.bot.send_message(
+        message.chat.id, texto_final,
+        parse_mode="MarkdownV2",
+        message_thread_id=thread_id
     )
 
 
