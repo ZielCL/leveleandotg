@@ -66,34 +66,83 @@ def _init_fonts():
 _FONT_CJK_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 _FONT_CJK_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 _FONT_UNIFONT_SYS = "/usr/share/fonts/opentype/unifont/unifont.otf"
+_FONT_FREESERIF   = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"
+_FONT_FREESANS    = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+_FONT_FREESANSBOLD= "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+
+# Cache de fuentes cargadas por tamaño
+_font_cache = {}
+
+def _load(path, size):
+    """Carga fuente con cache. Retorna None si no existe."""
+    key = (path, size)
+    if key in _font_cache:
+        return _font_cache[key]
+    if os.path.exists(path) and os.path.getsize(path) > 10_000:
+        try:
+            f = ImageFont.truetype(path, size)
+            _font_cache[key] = f
+            return f
+        except Exception:
+            pass
+    _font_cache[key] = None
+    return None
 
 def _get_font(size, bold=False):
-    """Unifont tiene cobertura unicode máxima (runas, syllabics, coreano, etc.)"""
-    if bold:
-        candidates = [
-            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",  # sistema
-            _FONT_CJK_BOLD,       # sistema (si existe)
-            _FONT_BOLD,           # NotoSans descargado
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            _FONT_UNIFONT,        # Unifont descargado (fallback bold)
-            _FONT_UNIFONT_SYS,    # Unifont sistema
-        ]
-    else:
-        candidates = [
-            _FONT_UNIFONT,        # Unifont descargado — máxima cobertura
-            _FONT_UNIFONT_SYS,    # Unifont sistema
-            _FONT_CJK_REGULAR,    # NotoSansCJK sistema (si existe)
-            _FONT_REGULAR,        # NotoSans descargado
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        ]
+    """Fuente principal para headers y texto general."""
+    candidates = [
+        _FONT_FREESANSBOLD if bold else _FONT_FREESANS,
+        _FONT_UNIFONT if bold else _FONT_UNIFONT,
+        _FONT_UNIFONT_SYS,
+        _FONT_CJK_BOLD if bold else _FONT_CJK_REGULAR,
+        _FONT_BOLD if bold else _FONT_REGULAR,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
     for path in candidates:
-        if os.path.exists(path) and os.path.getsize(path) > 50_000:
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception as e:
-                logging.getLogger(__name__).warning(f"_get_font error {path}: {e}")
+        f = _load(path, size)
+        if f:
+            return f
     return ImageFont.load_default()
+
+def _font_for_char(char, size):
+    """Selecciona la fuente correcta según el bloque unicode del carácter."""
+    cp = ord(char)
+    # Math Alphanumeric Symbols (𝓩𝓪𝓮𝓵, 𝙄𝙧𝙧𝙚𝙜𝙪𝙡𝙖𝙧) → FreeSerif
+    if 0x1D400 <= cp <= 0x1D7FF:
+        f = _load(_FONT_FREESERIF, size)
+        if f: return f
+    # Runas, Syllabics canadienses, Cherokee, otros scripts → Unifont
+    if (0x0500 <= cp <= 0x052F or   # Suplemento cirílico
+        0x1400 <= cp <= 0x167F or   # Syllabics canadienses
+        0x13A0 <= cp <= 0x13FF or   # Cherokee
+        0x16A0 <= cp <= 0x16FF or   # Runas
+        0x1C00 <= cp <= 0x1CFF or   # Sundanese, Batak, Lepcha
+        0x2C00 <= cp <= 0x2C5F):    # Glagolítico
+        f = (_load(_FONT_UNIFONT, size) or _load(_FONT_UNIFONT_SYS, size))
+        if f: return f
+    # Coreano, CJK → NotoSansCJK o Unifont
+    if (0xAC00 <= cp <= 0xD7AF or 0x4E00 <= cp <= 0x9FFF or
+        0x3040 <= cp <= 0x30FF):
+        f = (_load(_FONT_CJK_REGULAR, size) or
+             _load(_FONT_UNIFONT, size) or
+             _load(_FONT_UNIFONT_SYS, size))
+        if f: return f
+    # Latin y todo lo demás → FreeSans → Unifont → NotoSans
+    return (_load(_FONT_FREESANS, size) or
+            _load(_FONT_UNIFONT, size) or
+            _load(_FONT_UNIFONT_SYS, size) or
+            _load(_FONT_REGULAR, size) or
+            ImageFont.load_default())
+
+def draw_text_smart(draw, pos, text, size, fill):
+    """Dibuja texto usando la fuente correcta para cada carácter según su bloque unicode."""
+    x, y = pos
+    for char in text:
+        font = _font_for_char(char, size)
+        bbox = draw.textbbox((0, 0), char, font=font)
+        draw.text((x, y), char, font=font, fill=fill)
+        x += bbox[2] - bbox[0]
+    return x
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
@@ -2788,7 +2837,7 @@ def generar_imagen_marcador(chat_key, jugadores):
             draw.text((x, y + 8), str(pos), font=font_bold, fill=pos_color)
             x += COL_W[0]
 
-            draw.text((x, y + 8), nombre_j[:12], font=font, fill=TEXT)
+            draw_text_smart(draw, (x, y + 8), nombre_j[:14], FONT_SIZE, TEXT)
             x += COL_W[1]
 
             draw.text((x, y + 8), str(v), font=font, fill=GREEN)
@@ -2890,7 +2939,7 @@ def generar_imagen_roles(chat_key, jugadores):
             draw.text((x, y + 10), str(pos), font=font_bold, fill=GOLD if pos == 1 else GRAY)
             x += COL_W[0]
 
-            draw.text((x, y + 10), nom, font=font, fill=TEXT)
+            draw_text_smart(draw, (x, y + 10), nom[:14], FONT_SIZE, TEXT)
             x += COL_W[1]
 
             draw.text((x, y + 10), str(imp), font=font_bold, fill=PURPLE)
