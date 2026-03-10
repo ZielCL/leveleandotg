@@ -2484,147 +2484,119 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
 
 
 async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, _unused=None, bonus=False):
-    logger.info(f"[_fin_grupo_gana] INICIO chat_key={chat_key} palabra={palabra}")
+    logger.info(f"[FIN_GRUPO] iniciando chat_key={chat_key} palabra={palabra}")
     try:
-      await _fin_grupo_gana_impl(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, bonus)
-    except Exception as e:
-      logger.error(f"[_fin_grupo_gana] EXCEPCION GLOBAL: {e}", exc_info=True)
-      try:
+        tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+        if tarea: tarea.cancel()
+        tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+        if tarea_adiv: tarea_adiv.cancel()
+
+        impostor_ids_set = set(j[0] for j in impostores)
+        for j in jugadores:
+            if j[0] not in impostor_ids_set:
+                sumar_victoria(chat_key, j[0])
+                sumar_victoria_inocente(chat_key, j[0])
+        for imp in impostores:
+            sumar_derrota(chat_key, imp[0])
+        logger.info(f"[FIN_GRUPO] puntos sumados")
+
         with get_conn() as conn:
-          row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            conn.execute("INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
+                         (chat_key, "grupo", palabra, categoria))
+            conn.execute("UPDATE partidas SET estado=\'terminada\' WHERE chat_key=?", (chat_key,))
+        logger.info(f"[FIN_GRUPO] DB actualizada, row={row}")
+
         chat_id = row[0] if row else int(chat_key.split("_")[0])
         thread_id = get_thread_id(chat_key)
-        texto_fb = "🎉 El grupo ganó\\!\n\nImpostores: " + ", ".join(i[1] for i in impostores) + "\nPalabra: " + palabra + " \\(" + categoria + "\\)\n\nUsa /playimpostor para otra ronda"
-        await ctx.bot.send_message(chat_id, texto_fb, message_thread_id=thread_id)
-      except Exception as e2:
-        logger.error(f"[_fin_grupo_gana] fallback fallido: {e2}")
+        marcador = get_marcador_global(chat_key)
+        logger.info(f"[FIN_GRUPO] chat_id={chat_id} marcador={len(marcador)} jugadores")
 
-async def _fin_grupo_gana_impl(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, bonus=False):
-    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
-    if tarea:
-        tarea.cancel()
-    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
-    if tarea_adiv:
-        tarea_adiv.cancel()
-    impostor_ids_set = set(j[0] for j in impostores)
-    for j in jugadores:
-        if j[0] not in impostor_ids_set:
-            sumar_victoria(chat_key, j[0])
-            sumar_victoria_inocente(chat_key, j[0])
-    for imp in impostores:
-        sumar_derrota(chat_key, imp[0])
-
-    with get_conn() as conn:
-        row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
-        conn.execute(
-            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
-            (chat_key, "grupo", palabra, categoria)
+        tabla = formatear_tabla(chat_key, marcador)
+        nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
+        texto_final = t(chat_key, "grupo_gana").format(
+            impostores=nombres_impostores, palabra=esc(palabra),
+            cat=esc(categoria), tabla=tabla
         )
-        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
-
-    chat_id = row[0] if row else int(chat_key.split("_")[0])
-    marcador = get_marcador_global(chat_key)
-    tabla = formatear_tabla(chat_key, marcador)
-    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
-    texto_final = t(chat_key, "grupo_gana").format(
-        impostores=nombres_impostores, palabra=esc(palabra),
-        cat=esc(categoria), tabla=tabla
-    )
-    thread_id = get_thread_id(chat_key)
-    try:
-        await ctx.bot.send_message(
-            chat_id, texto_final,
-            parse_mode="MarkdownV2",
-            message_thread_id=thread_id
-        )
+        logger.info(f"[FIN_GRUPO] texto generado len={len(texto_final)}, enviando...")
+        await ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id)
+        logger.info(f"[FIN_GRUPO] mensaje enviado OK")
     except Exception as e:
-        logger.error(f"[_fin_grupo_gana] Error: {e}")
+        logger.error(f"[FIN_GRUPO] ERROR: {e}", exc_info=True)
         try:
-            texto_plano = (
-                f"🎉 ¡El grupo ganó!\n\n"
-                f"Los impostores eran: {', '.join(i[1] for i in impostores)}\n"
-                f"La palabra era: {palabra} ({categoria})\n\n"
-                f"Usa /playimpostor para otra ronda"
-            )
-            await ctx.bot.send_message(chat_id, texto_plano, message_thread_id=thread_id)
+            with get_conn() as conn:
+                row2 = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            chat_id2 = row2[0] if row2 else int(chat_key.split("_")[0])
+            thread_id2 = get_thread_id(chat_key)
+            fb = (f"🎉 ¡El grupo ganó!\n\n"
+                  f"Impostores: {', '.join(i[1] for i in impostores)}\n"
+                  f"Palabra: {palabra} ({categoria})\n\n"
+                  f"Usa /playimpostor para otra ronda")
+            await ctx.bot.send_message(chat_id2, fb, message_thread_id=thread_id2)
         except Exception as e2:
-            logger.error(f"[_fin_grupo_gana] Fallback fallido: {e2}")
+            logger.error(f"[FIN_GRUPO] fallback fallido: {e2}")
 
 
 async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, _unused=None, razon=None):
-    logger.info(f"[_fin_impostores_ganan] INICIO chat_key={chat_key} palabra={palabra} razon={razon}")
+    logger.info(f"[FIN_IMPOSTORES] iniciando chat_key={chat_key} palabra={palabra} razon={razon}")
     try:
-      await _fin_impostores_ganan_impl(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, razon)
-    except Exception as e:
-      logger.error(f"[_fin_impostores_ganan] EXCEPCION GLOBAL: {e}", exc_info=True)
-      try:
+        tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
+        if tarea: tarea.cancel()
+        tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+        if tarea_adiv: tarea_adiv.cancel()
+
+        impostor_ids_set = set(j[0] for j in impostores)
+        for imp in impostores:
+            sumar_victoria(chat_key, imp[0])
+            sumar_victoria_impostor(chat_key, imp[0])
+        for j in jugadores:
+            if j[0] not in impostor_ids_set:
+                sumar_derrota(chat_key, j[0])
+        logger.info(f"[FIN_IMPOSTORES] puntos sumados")
+
         with get_conn() as conn:
-          row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            conn.execute("INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
+                         (chat_key, "impostor", palabra, categoria))
+            conn.execute("UPDATE partidas SET estado=\'terminada\' WHERE chat_key=?", (chat_key,))
+        logger.info(f"[FIN_IMPOSTORES] DB actualizada, row={row}")
+
         chat_id = row[0] if row else int(chat_key.split("_")[0])
         thread_id = get_thread_id(chat_key)
-        texto_fb = "🕵️ Los impostores ganaron\\!\n\nEran: " + ", ".join(i[1] for i in impostores) + "\nPalabra: " + palabra + " \\(" + categoria + "\\)\n\nUsa /playimpostor para otra ronda"
-        await ctx.bot.send_message(chat_id, texto_fb, message_thread_id=thread_id)
-      except Exception as e2:
-        logger.error(f"[_fin_impostores_ganan] fallback fallido: {e2}")
+        marcador = get_marcador_global(chat_key)
+        logger.info(f"[FIN_IMPOSTORES] chat_id={chat_id} marcador={len(marcador)} jugadores")
 
-async def _fin_impostores_ganan_impl(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, razon=None):
-    tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
-    if tarea:
-        tarea.cancel()
-    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
-    if tarea_adiv:
-        tarea_adiv.cancel()
-    impostor_ids_set = set(j[0] for j in impostores)
-    for imp in impostores:
-        sumar_victoria(chat_key, imp[0])
-        sumar_victoria_impostor(chat_key, imp[0])
-    for j in jugadores:
-        if j[0] not in impostor_ids_set:
-            sumar_derrota(chat_key, j[0])
+        tabla = formatear_tabla(chat_key, marcador)
+        nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
-    with get_conn() as conn:
-        row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
-        conn.execute(
-            "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
-            (chat_key, "impostor", palabra, categoria)
+        if razon == "supervivencia":
+            desc = t(chat_key, "desc_supervivencia")
+        elif eliminado is None:
+            desc = t(chat_key, "desc_adivino")
+        else:
+            desc = t(chat_key, "desc_error_voto").format(nombre=esc(eliminado[1]))
+
+        texto_final = t(chat_key, "impostores_ganan").format(
+            impostores=nombres_impostores, desc=desc,
+            palabra=esc(palabra), cat=esc(categoria), tabla=tabla
         )
-        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
-
-    chat_id = row[0] if row else int(chat_key.split("_")[0])
-    marcador = get_marcador_global(chat_key)
-    tabla = formatear_tabla(chat_key, marcador)
-    nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
-
-    if razon == "supervivencia":
-        desc = t(chat_key, "desc_supervivencia")
-    elif eliminado is None:
-        desc = t(chat_key, "desc_adivino")
-    else:
-        desc = t(chat_key, "desc_error_voto").format(nombre=esc(eliminado[1]))
-
-    texto_final = t(chat_key, "impostores_ganan").format(
-        impostores=nombres_impostores, desc=desc,
-        palabra=esc(palabra), cat=esc(categoria), tabla=tabla
-    )
-    thread_id = get_thread_id(chat_key)
-    try:
-        await ctx.bot.send_message(
-            chat_id, texto_final,
-            parse_mode="MarkdownV2",
-            message_thread_id=thread_id
-        )
+        logger.info(f"[FIN_IMPOSTORES] texto generado len={len(texto_final)}, enviando...")
+        await ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id)
+        logger.info(f"[FIN_IMPOSTORES] mensaje enviado OK")
     except Exception as e:
-        logger.error(f"[_fin_impostores_ganan] Error: {e}")
+        logger.error(f"[FIN_IMPOSTORES] ERROR: {e}", exc_info=True)
         try:
-            texto_plano = (
-                f"🕵️ ¡Los impostores ganaron!\n\n"
-                f"Eran: {', '.join(i[1] for i in impostores)}\n"
-                f"La palabra era: {palabra} ({categoria})\n\n"
-                f"Usa /playimpostor para otra ronda"
-            )
-            await ctx.bot.send_message(chat_id, texto_plano, message_thread_id=thread_id)
+            with get_conn() as conn:
+                row2 = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+            chat_id2 = row2[0] if row2 else int(chat_key.split("_")[0])
+            thread_id2 = get_thread_id(chat_key)
+            fb = (f"🕵️ ¡Los impostores ganaron!\n\n"
+                  f"Eran: {', '.join(i[1] for i in impostores)}\n"
+                  f"Palabra: {palabra} ({categoria})\n\n"
+                  f"Usa /playimpostor para otra ronda")
+            await ctx.bot.send_message(chat_id2, fb, message_thread_id=thread_id2)
         except Exception as e2:
-            logger.error(f"[_fin_impostores_ganan] Fallback fallido: {e2}")
+            logger.error(f"[FIN_IMPOSTORES] fallback fallido: {e2}")
 
 
 def limpiar_nombre_tabla(nombre):
