@@ -60,21 +60,35 @@ def _init_fonts():
         else:
             _log.error(f"No se pudo descargar: {dest}")
 
+_FONT_CJK_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+_FONT_CJK_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+
 def _get_font(size, bold=False):
-    """Devuelve la mejor fuente disponible. Prioridad: NotoSansCJK sistema > NotoSans descargado > DejaVu > básica."""
-    candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"    if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        _FONT_BOLD    if bold else _FONT_REGULAR,
-        _DEJAVU_BOLD  if bold else _DEJAVU_REGULAR,
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"   if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    """Devuelve NotoSansCJK (cubre coreano, japonés, chino, latin) o fallback."""
+    # Primero intentar NotoSansCJK del sistema (máxima cobertura unicode)
+    cjk = _FONT_CJK_BOLD if bold else _FONT_CJK_REGULAR
+    if os.path.exists(cjk):
+        try:
+            return ImageFont.truetype(cjk, size, index=0)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Error NotoSansCJK: {e}")
+    # Fallback: NotoSans descargado
+    noto = _FONT_BOLD if bold else _FONT_REGULAR
+    if os.path.exists(noto) and os.path.getsize(noto) > 50_000:
+        try:
+            return ImageFont.truetype(noto, size)
+        except Exception:
+            pass
+    # Último recurso: sistema
+    for path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    ]
-    for path in candidates:
-        if os.path.exists(path) and os.path.getsize(path) > 50_000:
+    ]:
+        if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
             except Exception:
-                continue
+                pass
     return ImageFont.load_default()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -2705,7 +2719,7 @@ def generar_imagen_marcador(chat_key, jugadores):
         font       = _get_font(FONT_SIZE)
         font_bold  = _get_font(FONT_SIZE, bold=True)
         font_title = _get_font(26, bold=True)
-        logger.info(f"[MARCADOR] NotoSans existe={os.path.exists(_FONT_REGULAR)} size={os.path.getsize(_FONT_REGULAR) if os.path.exists(_FONT_REGULAR) else 0}")
+        logger.info(f"[MARCADOR] CJK existe={os.path.exists(_FONT_CJK_REGULAR)} NotoSans existe={os.path.exists(_FONT_REGULAR)}")
         # Colores
         BG     = (30,  30,  46)
         HEADER = (49,  50,  68)
