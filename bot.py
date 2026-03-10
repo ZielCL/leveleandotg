@@ -1398,16 +1398,16 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
-    # Verificar condiciones de error y responder con alert popup (solo visible para el usuario)
-    chat_key_check = chat_key
-    partida = get_partida(chat_key_check)
+    # Verificar condiciones de error ANTES de llamar answer()
+    # (Telegram solo permite una llamada a answer() por callback)
+    partida = get_partida(chat_key)
     if not partida:
         await query.answer(t(chat_key, "sin_partida"), show_alert=True)
         return
     if partida[2] != "esperando":
         await query.answer(t(chat_key, "partida_en_curso"), show_alert=True)
         return
-    activos = get_jugadores_activos(chat_key_check)
+    activos = get_jugadores_activos(chat_key)
     if user.id in [j[0] for j in activos]:
         await query.answer(t(chat_key, "ya_en_partida"), show_alert=True)
         return
@@ -1415,6 +1415,7 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(t(chat_key, "partida_llena").format(n=MAX_JUGADORES), show_alert=True)
         return
 
+    await query.answer()
     await _unirse(chat_key, user, query.message.reply_text, ctx.bot)
 
 async def _unirse(chat_key, user, reply_fn, bot=None):
