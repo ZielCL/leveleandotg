@@ -177,7 +177,12 @@ def _ensure_cmaps():
     if not _CMAP_PRIMARY:
         _CMAP_PRIMARY = _get_font_cmap(_FONT_DEJAVUSANS)
     if not _CMAP_SECONDARY:
-        _CMAP_SECONDARY = _get_font_cmap(_FONT_REGULAR)
+        # NotoSans puede estar en /data/fonts o en sistema
+        cmap = _get_font_cmap(_FONT_REGULAR)
+        if not cmap:
+            # Fallback: FreeSans sistema (más chars que DejaVu)
+            cmap = _get_font_cmap(_FONT_FREESANS)
+        _CMAP_SECONDARY = cmap
 
 def draw_text_smart(draw, pos, text: str, size: int, fill):
     """Dibuja texto mezclando fuentes:
@@ -230,17 +235,12 @@ def _init_fonts():
     # Descargar fuentes si no existen en sistema ni en cache
     # Unifont  → BMP completo (runas, syllabics, coreano, etc.)
     # FreeSerif → SMP math alphanumeric (𝓩 𝙄 etc.)
+    # Solo descargamos fuentes que realmente necesitamos y cuyas URLs funcionan.
+    # FreeSerif/FreeSans se omiten (URLs CDN caídas; DejaVuSans cubre los mismos chars).
     DOWNLOAD_LIST = [
         (_FONT_UNIFONT, [
             "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
             "https://github.com/nicowillis/fonts/raw/master/Unifont.ttf",
-        ]),
-        (_FONT_FREESERIF_DL, [
-            "https://cdn.jsdelivr.net/gh/opensourcedesign/fonts@master/gnu-freefont_freefont-20120503/FreeSerif.ttf",
-            "https://noto-website-2.storage.googleapis.com/pkgs/NotoSerif-unhinted.zip",
-        ]),
-        (_FONT_FREESANS_DL, [
-            "https://cdn.jsdelivr.net/gh/opensourcedesign/fonts@master/gnu-freefont_freefont-20120503/FreeSans.ttf",
         ]),
         (_FONT_REGULAR, [
             "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
