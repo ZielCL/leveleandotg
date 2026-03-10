@@ -2655,16 +2655,17 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
 
 
 def limpiar_nombre_tabla(nombre):
-    """Elimina emojis y caracteres no-ASCII para alinear bien la tabla monoespaciada."""
+    """Elimina solo emojis y caracteres de control, conserva unicode (coreano, árabe, etc.)"""
     import unicodedata
     resultado = ""
     for c in nombre:
         cat = unicodedata.category(c)
-        # Excluir emojis (So), símbolos (S*), y caracteres de control
-        if cat.startswith("S") or cat.startswith("C"):
+        # Solo excluir emojis (So) y caracteres de control (C*)
+        # Conservar letras (L*), números (N*), puntuación (P*), espacios (Zs)
+        if cat == "So" or cat.startswith("C"):
             continue
         resultado += c
-    return resultado.strip()[:6] or nombre[:6]
+    return resultado.strip()[:12] or nombre[:12]
 
 _FONT_DIR       = "/data/fonts"
 _FONT_REGULAR   = f"{_FONT_DIR}/NotoSans-Regular.ttf"
