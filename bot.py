@@ -34,7 +34,9 @@ def _get_font_dir():
 _FONT_DIR     = _get_font_dir()
 _FONT_REGULAR = f"{_FONT_DIR}/NotoSans-Regular.ttf"
 _FONT_BOLD    = f"{_FONT_DIR}/NotoSans-Bold.ttf"
-_FONT_UNIFONT = f"{_FONT_DIR}/unifont.otf"
+_FONT_UNIFONT    = f"{_FONT_DIR}/unifont.otf"
+_FONT_FREESERIF_DL = f"{_FONT_DIR}/FreeSerif.ttf"
+_FONT_FREESANS_DL  = f"{_FONT_DIR}/FreeSans.ttf"
 
 # Fuentes del sistema (Ubuntu/Debian — disponibles en Render si se instalan)
 _FONT_UNIFONT_SYS  = "/usr/share/fonts/opentype/unifont/unifont.otf"
@@ -50,22 +52,27 @@ _FONT_CJK_BOLD     = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 # Unifont cubre BMP (runas, syllabics, coreano, etc.)
 # FreeSerif cubre SMP matemático (U+1D400-U+1D7FF)
 # Ambas son necesarias para cobertura completa
+# IMPORTANTE: fuentes vectoriales (DejaVu, NotoSans) van PRIMERO.
+# Unifont es bitmap y solo funciona bien a 16px; va al final como
+# ultimo recurso para caracteres exoticos no cubiertos por vectoriales.
 _RENDER_FONT_PRIORITY = [
-    _FONT_UNIFONT,       # descargado — BMP completo
-    _FONT_UNIFONT_SYS,   # sistema — BMP completo
-    _FONT_FREESERIF,     # SMP: math alphanumeric, muchos scripts
-    _FONT_CJK_REGULAR,
-    _FONT_FREESANS,
-    _FONT_DEJAVUSANS,
-    _FONT_REGULAR,
+    _FONT_DEJAVUSANS,      # vectorial: Latin/Griego/Cirilico/Arabe basico
+    _FONT_REGULAR,         # NotoSans vectorial
+    _FONT_FREESANS,        # sistema (si disponible)
+    _FONT_FREESANS_DL,     # descargado
+    _FONT_CJK_REGULAR,     # CJK/coreano
+    _FONT_FREESERIF,       # SMP math (sistema)
+    _FONT_FREESERIF_DL,    # SMP math (descargado)
+    _FONT_UNIFONT_SYS,     # Unifont sistema - exoticos BMP
+    _FONT_UNIFONT,         # Unifont descargado - ultimo recurso
 ]
 _RENDER_FONT_PRIORITY_BOLD = [
-    _FONT_FREESANSBOLD,
-    _FONT_UNIFONT,
-    _FONT_UNIFONT_SYS,
-    _FONT_CJK_BOLD,
     _FONT_DEJAVUBOLD,
     _FONT_BOLD,
+    _FONT_FREESANSBOLD,
+    _FONT_CJK_BOLD,
+    _FONT_UNIFONT_SYS,
+    _FONT_UNIFONT,
 ]
 
 # Cache: (path, size) → ImageFont
@@ -178,32 +185,20 @@ def _init_fonts():
     _log = logging.getLogger(__name__)
     _log.info(f"[FONTS] Directorio de fuentes: {_FONT_DIR}")
 
-    # Intentar instalar fonts del sistema si no están (solo en Linux con apt)
-    import subprocess
-    sys_fonts_needed = [
-        (_FONT_UNIFONT_SYS, "fonts-unifont"),
-        (_FONT_FREESERIF,   "fonts-freefont-ttf"),
-    ]
-    for path, pkg in sys_fonts_needed:
-        if not os.path.exists(path):
-            _log.info(f"[FONTS] {path} no encontrada, intentando instalar {pkg}...")
-            try:
-                subprocess.run(
-                    ["apt-get", "install", "-y", "--no-install-recommends", pkg],
-                    capture_output=True, timeout=30
-                )
-                if os.path.exists(path):
-                    _log.info(f"[FONTS] ✅ {pkg} instalado correctamente")
-                else:
-                    _log.warning(f"[FONTS] ⚠️ {pkg} no pudo instalarse — agrega al Build Command de Render: apt-get install -y fonts-unifont fonts-freefont-ttf")
-            except Exception as e:
-                _log.warning(f"[FONTS] apt-get falló ({e}) — agrega al Build Command: apt-get install -y fonts-unifont fonts-freefont-ttf")
-
-    # Descargar fuentes si no existen
+    # Descargar fuentes si no existen en sistema ni en cache
+    # Unifont  → BMP completo (runas, syllabics, coreano, etc.)
+    # FreeSerif → SMP math alphanumeric (𝓩 𝙄 etc.)
     DOWNLOAD_LIST = [
         (_FONT_UNIFONT, [
             "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
             "https://github.com/nicowillis/fonts/raw/master/Unifont.ttf",
+        ]),
+        (_FONT_FREESERIF_DL, [
+            "https://cdn.jsdelivr.net/gh/opensourcedesign/fonts@master/gnu-freefont_freefont-20120503/FreeSerif.ttf",
+            "https://noto-website-2.storage.googleapis.com/pkgs/NotoSerif-unhinted.zip",
+        ]),
+        (_FONT_FREESANS_DL, [
+            "https://cdn.jsdelivr.net/gh/opensourcedesign/fonts@master/gnu-freefont_freefont-20120503/FreeSans.ttf",
         ]),
         (_FONT_REGULAR, [
             "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
