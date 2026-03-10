@@ -170,18 +170,42 @@ def _get_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 # Fuentes Unifont (bitmap, solo 16px nativo)
-_UNIFONT_PATHS = []  # se llena en _ensure_cmaps
+_UNIFONT_PATHS: list = []      # se llena en _ensure_cmaps
+_BAD_FONTS: set = set()        # fuentes que no renderizan (CFF en FreeType viejo)
+
+def _font_renders_ok(path: str, size: int = 22) -> bool:
+    """Verifica que la fuente produce píxeles reales (detecta CFF problemáticos)."""
+    try:
+        cmap = _font_cmaps.get(path, set())
+        if not cmap:
+            return False
+        # Tomar un codepoint de muestra: preferir Latin (A=65), sino el primero
+        cp = 65 if 65 in cmap else next(iter(sorted(cmap - {32})), None)
+        if cp is None:
+            return False
+        f = ImageFont.truetype(path, size)
+        from PIL import Image as _Im, ImageDraw as _IDr
+        img = _Im.new("L", (size * 4, size * 3), 0)
+        _IDr.Draw(img).text((4, 4), chr(cp), font=f, fill=255)
+        return any(p > 0 for p in img.tobytes())
+    except Exception:
+        return False
 
 def _ensure_cmaps():
-    """Pre-carga los cmaps de todas las fuentes disponibles."""
-    global _UNIFONT_PATHS
-    # Calentar cmap de todas las fuentes de la lista de prioridad
+    """Pre-carga y valida los cmaps de todas las fuentes disponibles."""
+    global _UNIFONT_PATHS, _BAD_FONTS
+    _log = logging.getLogger(__name__)
     for p in _RENDER_FONT_PRIORITY:
         if p and os.path.exists(p) and os.path.getsize(p) > 10_000:
             _get_font_cmap(p)  # pobla _font_cmaps
-    # Recordar paths de Unifont para usarlos a 16px
+            # Validar que la fuente realmente renderiza (detectar CFF vacío)
+            if not _font_renders_ok(p):
+                _BAD_FONTS.add(p)
+                _log.warning(f"[FONTS] ⚠️ {os.path.basename(p)} no renderiza (CFF/FreeType incompatible) — excluida")
+    # Paths de Unifont válidos para fallback a 16px
     _UNIFONT_PATHS = [p for p in [_FONT_UNIFONT, _FONT_UNIFONT_SYS]
-                      if p and os.path.exists(p) and os.path.getsize(p) > 10_000]
+                      if p and os.path.exists(p) and os.path.getsize(p) > 10_000
+                      and p not in _BAD_FONTS]
 
 _cmaps_ready = False    # flag para ensure solo una vez por arranque
 
@@ -204,7 +228,7 @@ def draw_text_smart(draw, pos, text: str, size: int, fill):
     # Separar paths de Unifont del resto para tratarlos diferente
     unifont_set = {_FONT_UNIFONT, _FONT_UNIFONT_SYS}
     vectorial_paths = [p for p in _RENDER_FONT_PRIORITY
-                       if p and p not in unifont_set
+                       if p and p not in unifont_set and p not in _BAD_FONTS
                        and os.path.exists(p) and os.path.getsize(p) > 10_000]
 
     for char in text:
