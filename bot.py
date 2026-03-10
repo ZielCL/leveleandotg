@@ -1955,11 +1955,7 @@ async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
 
     nombre_j = next((j[1] for j in jugadores if j[0] == impostor_id), "?")
 
-    # Marcar partida como terminada antes de mandar mensaje
-    with get_conn() as conn:
-        conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
-
-    msg_text = t(chat_key, "adiv_timeout").format(nombre=esc(nombre_j), uid=impostor_id)
+    msg_text = t(chat_key, "adiv_timeout").format(nombre=nombre_j.replace("[","\\[").replace("]","\\]"), uid=impostor_id)
     msg = await ctx.bot.send_message(chat_id, msg_text, parse_mode="MarkdownV2", message_thread_id=thread_id)
 
     await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
