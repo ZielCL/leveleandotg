@@ -2943,18 +2943,84 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
             logger.error(f"[FIN_IMPOSTORES] fallback fallido: {e2}")
 
 
+# ── Tabla de homoglyphs: caracteres decorativos → letras latinas ──────────────
+_HOMOGLYPHS = {
+    # Runas nórdicas usadas como lookalikes
+    'ᛕ': 'K', 'ᚱ': 'R', 'ᚦ': 'TH', 'ᚢ': 'U', 'ᚠ': 'F', 'ᚾ': 'N',
+    'ᛁ': 'I', 'ᛃ': 'J', 'ᛏ': 'T', 'ᛒ': 'B', 'ᛖ': 'E', 'ᛗ': 'M',
+    'ᛚ': 'L', 'ᛜ': 'NG', 'ᛞ': 'D', 'ᛟ': 'O',
+    # Sílabas canadienses usadas como letras
+    'ᑌ': 'U', 'ᒎ': 'J', 'ᑎ': 'N', 'ᑕ': 'C', 'ᑖ': 'C', 'ᐁ': 'E',
+    'ᐃ': 'I', 'ᐅ': 'O', 'ᐊ': 'A', 'ᐸ': 'P', 'ᑭ': 'K', 'ᑯ': 'Q',
+    'ᒐ': 'J', 'ᒥ': 'M', 'ᓇ': 'N', 'ᓴ': 'S', 'ᓯ': 'S', 'ᔑ': 'SH',
+    'ᕐ': 'R', 'ᕙ': 'F', 'ᖃ': 'Q', 'ᖠ': 'L', 'ᗑ': 'G',
+    # Cherokee usados decorativamente
+    'Ꭵ': 'I', 'Ꭺ': 'A', 'Ꭻ': 'J', 'Ꭼ': 'E', 'Ꮋ': 'M', 'Ꮮ': 'L',
+    'Ꮩ': 'V', 'Ꭱ': 'R', 'Ꮑ': 'N', 'Ꮪ': 'S', 'Ꮤ': 'T', 'Ꮝ': 'S',
+    # Latin Extended con ganchos usados decorativamente
+    'Ƴ': 'Y', 'ƴ': 'y', 'Ɣ': 'Y', 'Ʌ': 'V', 'Ɯ': 'M', 'Ƨ': 'S',
+    'Ƽ': 'S', 'ƺ': 'z', 'Ɉ': 'J', 'Ƈ': 'C', 'ƈ': 'c',
+    # Símbolos decorativos → eliminar
+    '†': '', '‡': '', '§': '', '©': '', '®': '', '™': '',
+    '°': '', '•': '', '◦': '', '▪': '', '▫': '',
+    '★': '', '☆': '', '♦': '', '♣': '', '♠': '', '♥': '', '♡': '',
+    '❤': '', '✿': '', '❀': '', '✦': '', '✧': '',
+    '「': '', '」': '', '【': '', '】': '', '《': '', '》': '',
+    '〖': '', '〗': '', '〔': '', '〕': '',
+    '✞': '', '✝': '', '⊹': '', '×': 'x',
+    '⌈': '', '⌉': '', '⌊': '', '⌋': '',
+    '⟨': '', '⟩': '', '⟦': '', '⟧': '',
+    'ꓰ': '', 'ꓱ': '',
+}
+# Rangos de codepoints a descartar (modificadores tiny, combinadores, etc.)
+_DISCARD_RANGES = [
+    (0x02B0, 0x02FF),  # Spacing Modifier Letters (superscript tiny)
+    (0x0300, 0x036F),  # Combining Diacritical Marks
+    (0x1AB0, 0x1AFF),  # Combining Diacritical Marks Extended
+    (0x1D00, 0x1D7F),  # Phonetic Extensions (letras fonéticas tiny)
+    (0x1D80, 0x1DBF),  # Phonetic Extensions Supplement
+    (0x1DC0, 0x1DFF),  # Combining Diacritical Marks Supplement
+    (0x20D0, 0x20FF),  # Combining Diacritical Marks for Symbols
+    (0x2700, 0x27BF),  # Dingbats
+    (0x2B00, 0x2BFF),  # Miscellaneous Symbols and Arrows
+    (0xFE00, 0xFE0F),  # Variation Selectors
+]
+
 def limpiar_nombre_tabla(nombre):
-    """Elimina solo emojis y caracteres de control, conserva unicode (coreano, árabe, etc.)"""
-    import unicodedata
-    resultado = ""
-    for c in nombre:
-        cat = unicodedata.category(c)
-        # Solo excluir emojis (So) y caracteres de control (C*)
-        # Conservar letras (L*), números (N*), puntuación (P*), espacios (Zs)
-        if cat == "So" or cat.startswith("C"):
+    """Convierte nombres fancy de Telegram a texto legible para la tabla del marcador.
+
+    Ejemplos:
+      '𝓙𝓸𝓼𝓮 𝓒𝓻𝓾𝔃'              → 'Jose Cruz'
+      '†𝑻𝒓𝒊𝒔𝒉† (TAK Remix)🇳🇵'  → 'Trish (TAK Remix)🇳🇵'
+      '~ ᛕƳᑌᒎᎥᑎ~'               → 'KYUJIN'
+    """
+    import unicodedata as _ud, re as _re
+    # 1. NFKC: resuelve fuentes math bold/italic/script → ASCII
+    s = _ud.normalize("NFKC", nombre)
+    # 2. Homoglyphs: runas/sílabas canadienses → letras latinas; símbolos → vacío
+    result = ""
+    for c in s:
+        result += _HOMOGLYPHS.get(c, c)
+    s = result
+    # 3. Filtrar char a char
+    clean = ""
+    for c in s:
+        cp = ord(c)
+        cat = _ud.category(c)
+        if any(lo <= cp <= hi for lo, hi in _DISCARD_RANGES):
             continue
-        resultado += c
-    return resultado.strip()[:12] or nombre[:12]
+        if 0x1F1E0 <= cp <= 0x1F1FF or 0x1F300 <= cp <= 0x1FFFF:
+            clean += c; continue
+        if cat.startswith('L'):
+            clean += c; continue
+        if cat.startswith('N'):
+            clean += c; continue
+        if cat == 'Zs' or c == ' ':
+            clean += ' '; continue
+        if c in "-.,!?()'":
+            clean += c; continue
+    clean = _re.sub(r'\s+', ' ', clean).strip()
+    return (clean or nombre)[:7]
 
 def generar_imagen_marcador(chat_key, jugadores):
     """Genera un PNG con la tabla del marcador y devuelve bytes."""
