@@ -9,6 +9,8 @@ import logging
 import random
 import sqlite3
 import anthropic
+import io
+from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
@@ -169,8 +171,8 @@ TEXTOS = {
         "segunda_ronda":            "🔄 *¡Segunda ronda de pistas\\!*\n\nAhora sí, después de esta ronda se abrirá la votación\\.\n\n*🎲 Nuevo orden:*\n{orden}",
         "todos_dieron_pista":       "✅ *¡Todos dieron su pista\\!*\n\nEl creador puede abrir la votación 🗳️",
         "nueva_ronda_pistas":       "🔄 *¡Nueva ronda de pistas\\!*\n\n👥 Jugadores vivos: *{n}*\n\n*🎲 Nuevo orden de pistas:*\n{orden}\n\nCada uno da *una pista* sobre la palabra\\.\nCuando terminen, el creador abre la votación 🗳️",
-        "grupo_gana":               "🎉 *¡El grupo ganó\\!*\n\nLos impostores eran: {impostores}\n¡Fueron eliminados sin adivinar la palabra\\!\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /playimpostor para otra ronda_",
-        "impostores_ganan":         "🕵️ *¡Los impostores ganaron\\!*\n\nEran: {impostores}\n{desc}\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n*🏆 Marcador:*\n{tabla}\n\n_Usa /playimpostor para otra ronda_",
+        "grupo_gana":               "🎉 *¡El grupo ganó\\!*\n\nLos impostores eran: {impostores}\n¡Fueron eliminados sin adivinar la palabra\\!\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n_Usa /playimpostor para otra ronda_",
+        "impostores_ganan":         "🕵️ *¡Los impostores ganaron\\!*\n\nEran: {impostores}\n{desc}\n\n🔑 La palabra era: *{palabra}* \\({cat}\\)\n\n_Usa /playimpostor para otra ronda_",
         "desc_supervivencia":       "Los impostores sobrevivieron hasta quedar solos con un inocente\\.",
         "desc_adivino":             "Un impostor adivinó la palabra correcta\\.",
         "desc_error_voto":          "Votaron incorrectamente por *{nombre}*\\.",
@@ -2526,14 +2528,16 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         marcador = get_marcador_global(chat_key)
         logger.info(f"[FIN_GRUPO] chat_id={chat_id} marcador={len(marcador)} jugadores")
 
-        tabla = formatear_tabla(chat_key, marcador)
         nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
         texto_final = t(chat_key, "grupo_gana").format(
             impostores=nombres_impostores, palabra=esc(palabra),
-            cat=esc(categoria), tabla=tabla
+            cat=esc(categoria)
         )
         logger.info(f"[FIN_GRUPO] texto generado len={len(texto_final)}, enviando...")
         await asyncio.shield(ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id))
+        img_buf = generar_imagen_marcador(chat_key, marcador)
+        if img_buf:
+            await asyncio.shield(ctx.bot.send_photo(chat_id, photo=img_buf, message_thread_id=thread_id))
         logger.info(f"[FIN_GRUPO] mensaje enviado OK")
     except BaseException as e:
         logger.error(f"[FIN_GRUPO] ERROR tipo={type(e).__name__}: {e}", exc_info=True)
@@ -2581,7 +2585,6 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
         marcador = get_marcador_global(chat_key)
         logger.info(f"[FIN_IMPOSTORES] chat_id={chat_id} marcador={len(marcador)} jugadores")
 
-        tabla = formatear_tabla(chat_key, marcador)
         nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
         if razon == "supervivencia":
@@ -2593,10 +2596,13 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
 
         texto_final = t(chat_key, "impostores_ganan").format(
             impostores=nombres_impostores, desc=desc,
-            palabra=esc(palabra), cat=esc(categoria), tabla=tabla
+            palabra=esc(palabra), cat=esc(categoria)
         )
         logger.info(f"[FIN_IMPOSTORES] texto generado len={len(texto_final)}, enviando...")
         await asyncio.shield(ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id))
+        img_buf = generar_imagen_marcador(chat_key, marcador)
+        if img_buf:
+            await asyncio.shield(ctx.bot.send_photo(chat_id, photo=img_buf, message_thread_id=thread_id))
         logger.info(f"[FIN_IMPOSTORES] mensaje enviado OK")
     except BaseException as e:
         logger.error(f"[FIN_IMPOSTORES] ERROR tipo={type(e).__name__}: {e}", exc_info=True)
@@ -2625,6 +2631,207 @@ def limpiar_nombre_tabla(nombre):
             continue
         resultado += c
     return resultado.strip()[:6] or nombre[:6]
+
+_FONT_MONO      = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+_FONT_MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+
+def generar_imagen_marcador(chat_key, jugadores):
+    """Genera un PNG con la tabla del marcador y devuelve bytes."""
+    try:
+        FONT_SIZE = 22
+        font      = ImageFont.truetype(_FONT_MONO,      FONT_SIZE)
+        font_bold = ImageFont.truetype(_FONT_MONO_BOLD, FONT_SIZE)
+        font_title= ImageFont.truetype(_FONT_MONO_BOLD, 26)
+
+        # Colores
+        BG     = (30,  30,  46)
+        HEADER = (49,  50,  68)
+        ROW_A  = (40,  40,  58)
+        ROW_B  = (35,  35,  52)
+        TEXT   = (220, 220, 235)
+        ACCENT = (137, 180, 250)
+        GREEN  = (166, 227, 161)
+        RED    = (243, 139, 168)
+        GRAY   = (150, 150, 170)
+        GOLD   = (255, 215,   0)
+        SILVER = (192, 192, 192)
+        BRONZE = (205, 127,  50)
+        LINE   = (69,  71,  90)
+
+        PAD   = 20
+        ROW_H = 38
+        COL_W = [40, 150, 50, 50, 65]   # #, Jugador, V, D, Bal
+        COLS_ES = ["#", "Jugador", "V", "D", "Bal"]
+        COLS_EN = ["#", "Player",  "V", "D", "Bal"]
+        lang = get_idioma(chat_key)
+        COLS = COLS_EN if lang == "en" else COLS_ES
+
+        filas = []
+        for j in jugadores:
+            nombre_j = limpiar_nombre_tabla(j[1])
+            v, d = j[2], j[3]
+            bal = v - d
+            bal_str = f"+{bal}" if bal > 0 else str(bal)
+            filas.append((nombre_j, v, d, bal_str))
+
+        total_w = PAD * 2 + sum(COL_W)
+        title_h = 48
+        total_h = PAD + title_h + ROW_H + ROW_H * len(filas) + PAD
+
+        img  = Image.new("RGB", (total_w, total_h), BG)
+        draw = ImageDraw.Draw(img)
+
+        # Título
+        titulo = t(chat_key, "titulo_marcador") if "titulo_marcador" in (get_idioma(chat_key) and {}) else ("Leaderboard" if lang == "en" else "Marcador")
+        draw.text((PAD, PAD // 2 + 2), f"  {titulo}", font=font_title, fill=GOLD)
+
+        # Header
+        y = PAD + title_h
+        draw.rectangle([PAD, y, total_w - PAD, y + ROW_H], fill=HEADER)
+        x = PAD + 8
+        for col, w in zip(COLS, COL_W):
+            draw.text((x, y + 8), col, font=font_bold, fill=ACCENT)
+            x += w
+
+        # Filas
+        for idx, (nombre_j, v, d, bal) in enumerate(filas):
+            y += ROW_H
+            draw.rectangle([PAD, y, total_w - PAD, y + ROW_H - 1], fill=ROW_A if idx % 2 == 0 else ROW_B)
+            draw.line([PAD, y + ROW_H - 1, total_w - PAD, y + ROW_H - 1], fill=LINE, width=1)
+
+            pos = idx + 1
+            x = PAD + 8
+
+            # Número de posición con color
+            pos_color = GOLD if pos == 1 else SILVER if pos == 2 else BRONZE if pos == 3 else GRAY
+            draw.text((x, y + 8), str(pos), font=font_bold, fill=pos_color)
+            x += COL_W[0]
+
+            draw.text((x, y + 8), nombre_j[:12], font=font, fill=TEXT)
+            x += COL_W[1]
+
+            draw.text((x, y + 8), str(v), font=font, fill=GREEN)
+            x += COL_W[2]
+
+            draw.text((x, y + 8), str(d), font=font, fill=RED)
+            x += COL_W[3]
+
+            bal_color = GREEN if bal.startswith("+") else RED if bal.startswith("-") else GRAY
+            draw.text((x, y + 8), bal, font=font_bold, fill=bal_color)
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        logger.error(f"[generar_imagen_marcador] error: {e}")
+        return None
+
+def generar_imagen_roles(chat_key, jugadores):
+    """Genera un PNG con la tabla de roles y devuelve bytes."""
+    try:
+        FONT_SIZE = 24
+        font       = ImageFont.truetype(_FONT_MONO,      FONT_SIZE)
+        font_bold  = ImageFont.truetype(_FONT_MONO_BOLD, FONT_SIZE)
+        font_title = ImageFont.truetype(_FONT_MONO_BOLD, 28)
+
+        BG        = (22,  22,  35)
+        HEADER_BG = (42,  44,  66)
+        ROW_A     = (32,  33,  50)
+        ROW_B     = (28,  29,  45)
+        ACCENT    = (130, 170, 255)
+        TEXT      = (215, 215, 230)
+        GOLD      = (255, 210,  50)
+        GRAY      = (130, 130, 150)
+        PURPLE    = (200, 140, 255)   # impostor
+        TEAL      = (100, 220, 200)   # inocente
+        GREEN     = (140, 220, 140)
+        LINE      = (55,  57,  80)
+        TITLE_BG  = (30,  30,  50)
+
+        lang = get_idioma(chat_key)
+        if lang == "en":
+            COLS  = ["#", "Player",  "Imp", "W",  "Ino", "W" ]
+            titulo = "ROLES"
+        else:
+            COLS  = ["#", "Jugador", "Imp", "W",  "Ino", "W" ]
+            titulo = "ROLES"
+
+        COL_W = [42, 155, 52, 48, 52, 48]
+
+        PAD      = 24
+        ROW_H    = 42
+        title_h  = 56
+        total_w  = PAD * 2 + sum(COL_W)
+        total_h  = title_h + ROW_H + ROW_H * len(jugadores) + PAD
+
+        img  = Image.new("RGB", (total_w, total_h), BG)
+        draw = ImageDraw.Draw(img)
+
+        # Título
+        draw.rectangle([0, 0, total_w, title_h], fill=TITLE_BG)
+        draw.text((PAD, 12), titulo, font=font_title, fill=PURPLE)
+        draw.rectangle([0, title_h - 2, total_w, title_h], fill=PURPLE)
+
+        # Subheader con leyenda
+        y = title_h
+        draw.rectangle([0, y, total_w, y + ROW_H], fill=HEADER_BG)
+        x = PAD
+        for i, (col, w) in enumerate(zip(COLS, COL_W)):
+            # Colorear headers de impostor/inocente
+            col_color = PURPLE if col in ("Imp",) else TEAL if col in ("Ino",) else ACCENT
+            # Las W alternan color según su columna
+            if col == "W":
+                col_color = PURPLE if i == 3 else TEAL
+            draw.text((x, y + 10), col, font=font_bold, fill=col_color)
+            x += w
+        draw.line([0, y + ROW_H - 1, total_w, y + ROW_H - 1], fill=LINE, width=1)
+
+        # Filas
+        for idx, j in enumerate(jugadores):
+            y += ROW_H
+            draw.rectangle([0, y, total_w, y + ROW_H], fill=ROW_A if idx % 2 == 0 else ROW_B)
+            draw.line([0, y + ROW_H - 1, total_w, y + ROW_H - 1], fill=LINE, width=1)
+
+            nom  = limpiar_nombre_tabla(j[0])
+            imp  = j[1]   # veces impostor
+            ino  = j[2]   # veces inocente
+            wimp = j[3]   # victorias impostor
+            wino = j[4]   # victorias inocente
+
+            # % de victoria como impostor
+            pct_imp = str(wimp)
+            pct_ino = str(wino)
+
+            pos = idx + 1
+            x = PAD
+
+            draw.text((x, y + 10), str(pos), font=font_bold, fill=GOLD if pos == 1 else GRAY)
+            x += COL_W[0]
+
+            draw.text((x, y + 10), nom, font=font, fill=TEXT)
+            x += COL_W[1]
+
+            draw.text((x, y + 10), str(imp), font=font_bold, fill=PURPLE)
+            x += COL_W[2]
+
+            draw.text((x, y + 10), pct_imp, font=font, fill=GREEN if wimp > 0 else GRAY)
+            x += COL_W[3]
+
+            draw.text((x, y + 10), str(ino), font=font_bold, fill=TEAL)
+            x += COL_W[4]
+
+            draw.text((x, y + 10), pct_ino, font=font, fill=GREEN if wino > 0 else GRAY)
+
+        draw.rectangle([0, total_h - 3, total_w, total_h], fill=PURPLE)
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        logger.error(f"[generar_imagen_roles] error: {e}")
+        return None
 
 def formatear_tabla(chat_key, jugadores):
     MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -2660,11 +2867,19 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    tabla = formatear_tabla(chat_key, jugadores)
     await update.message.reply_text(
-        t(chat_key, "marcador").format(tabla=tabla),
+        t(chat_key, "marcador_titulo"),
         parse_mode="MarkdownV2"
     )
+    img_buf = generar_imagen_marcador(chat_key, jugadores)
+    if img_buf:
+        await update.message.reply_photo(photo=img_buf)
+    else:
+        tabla = formatear_tabla(chat_key, jugadores)
+        await update.message.reply_text(
+            t(chat_key, "marcador").format(tabla=tabla),
+            parse_mode="MarkdownV2"
+        )
 
 
 async def cmd_resetimpostor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2839,22 +3054,24 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(chat_key, "roles_sin_datos"), parse_mode="MarkdownV2")
         return
 
-    col = t(chat_key, "col_jugador")
-    # Imp = veces como impostor, W = victorias como impostor
-    # Ino = veces como inocente, W = victorias como inocente
-    encabezado = f"#   {col:<6}  Imp  W   Ino  W"
-    separador  = "─" * len(encabezado)
-    lineas = [encabezado, separador]
-    for i, j in enumerate(jugadores, 1):
-        nom = limpiar_nombre_tabla(j[0])
-        vi = j[1]; ino = j[2]; wvi = j[3]; wino = j[4]
-        lineas.append(f"{i:<3} {nom:<6}  {vi:<4} {wvi:<4} {ino:<4} {wino}")
-
-    tabla = "```\n" + "\n".join(lineas) + "\n```"
-    await update.message.reply_text(
-        t(chat_key, "roles_tabla").format(tabla=tabla),
-        parse_mode="MarkdownV2"
-    )
+    img_buf = generar_imagen_roles(chat_key, jugadores)
+    if img_buf:
+        await update.message.reply_photo(photo=img_buf)
+    else:
+        # Fallback texto
+        col = t(chat_key, "col_jugador")
+        encabezado = f"#   {col:<6}  Imp  W   Ino  W"
+        separador  = "─" * len(encabezado)
+        lineas = [encabezado, separador]
+        for i, j in enumerate(jugadores, 1):
+            nom = limpiar_nombre_tabla(j[0])
+            vi, ino, wvi, wino = j[1], j[2], j[3], j[4]
+            lineas.append(f"{i:<3} {nom:<6}  {vi:<4} {wvi:<4} {ino:<4} {wino}")
+        tabla = "```\n" + "\n".join(lineas) + "\n```"
+        await update.message.reply_text(
+            t(chat_key, "roles_tabla").format(tabla=tabla),
+            parse_mode="MarkdownV2"
+        )
 
 
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
