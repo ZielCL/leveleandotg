@@ -15,15 +15,18 @@ from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
 # ── Fuentes con cobertura unicode completa ──────────────────────
-_FONT_DIR   = "/data/fonts"
+_FONT_DIR     = "/data/fonts"
 _FONT_REGULAR = f"{_FONT_DIR}/NotoSans-Regular.ttf"
 _FONT_BOLD    = f"{_FONT_DIR}/NotoSans-Bold.ttf"
-
-# Todas las fuentes a descargar (NotoSans + DejaVu como fallback garantizado)
+_FONT_UNIFONT = f"{_FONT_DIR}/unifont.otf"
 _DEJAVU_REGULAR = f"{_FONT_DIR}/DejaVuSans.ttf"
 _DEJAVU_BOLD    = f"{_FONT_DIR}/DejaVuSans-Bold.ttf"
 
 _FONT_DOWNLOAD_LIST = [
+    (_FONT_UNIFONT, [
+        "https://unifoundry.com/pub/unifont/unifont-15.1.05/font-builds/unifont-15.1.05.otf",
+        "https://github.com/nicowillis/fonts/raw/master/Unifont.ttf",
+    ]),
     (_FONT_REGULAR, [
         "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
         "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
@@ -62,28 +65,30 @@ def _init_fonts():
 
 _FONT_CJK_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 _FONT_CJK_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-_FONT_UNIFONT     = "/usr/share/fonts/opentype/unifont/unifont.otf"
+_FONT_UNIFONT_SYS = "/usr/share/fonts/opentype/unifont/unifont.otf"
 
 def _get_font(size, bold=False):
-    """Unifont tiene cobertura unicode máxima (runas, syllabics, etc.). Para bold usa FreeSansBold."""
+    """Unifont tiene cobertura unicode máxima (runas, syllabics, coreano, etc.)"""
     if bold:
         candidates = [
-            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-            _FONT_CJK_BOLD,
-            _FONT_BOLD,
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",  # sistema
+            _FONT_CJK_BOLD,       # sistema (si existe)
+            _FONT_BOLD,           # NotoSans descargado
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            _FONT_UNIFONT,
+            _FONT_UNIFONT,        # Unifont descargado (fallback bold)
+            _FONT_UNIFONT_SYS,    # Unifont sistema
         ]
     else:
         candidates = [
-            _FONT_UNIFONT,
-            _FONT_CJK_REGULAR,
-            _FONT_REGULAR,
+            _FONT_UNIFONT,        # Unifont descargado — máxima cobertura
+            _FONT_UNIFONT_SYS,    # Unifont sistema
+            _FONT_CJK_REGULAR,    # NotoSansCJK sistema (si existe)
+            _FONT_REGULAR,        # NotoSans descargado
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         ]
     for path in candidates:
-        if os.path.exists(path):
+        if os.path.exists(path) and os.path.getsize(path) > 50_000:
             try:
                 return ImageFont.truetype(path, size)
             except Exception as e:
@@ -2718,7 +2723,7 @@ def generar_imagen_marcador(chat_key, jugadores):
         font       = _get_font(FONT_SIZE)
         font_bold  = _get_font(FONT_SIZE, bold=True)
         font_title = _get_font(26, bold=True)
-        logger.info(f"[MARCADOR] CJK existe={os.path.exists(_FONT_CJK_REGULAR)} NotoSans existe={os.path.exists(_FONT_REGULAR)}")
+        logger.info(f"[MARCADOR] Unifont={os.path.exists(_FONT_UNIFONT)} CJK={os.path.exists(_FONT_CJK_REGULAR)} NotoSans={os.path.exists(_FONT_REGULAR)}")
         # Colores
         BG     = (30,  30,  46)
         HEADER = (49,  50,  68)
