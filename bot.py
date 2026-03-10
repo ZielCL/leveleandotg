@@ -1199,7 +1199,7 @@ def get_marcador(chat_key):
 def get_marcador_global(chat_key):
     with get_conn() as conn:
         return conn.execute(
-            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_key=? ORDER BY (victorias - derrotas) DESC, victorias DESC",
+            "SELECT user_id, username, victorias, derrotas FROM jugadores WHERE chat_key=? AND (victorias > 0 OR derrotas > 0) ORDER BY (victorias - derrotas) DESC, victorias DESC",
             (chat_key,)
         ).fetchall()
 
