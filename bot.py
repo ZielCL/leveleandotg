@@ -15,37 +15,74 @@ from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 
 # ── Fuentes con cobertura unicode completa ──────────────────────
-_NOTO_DIR   = "/data/fonts"
-_FONT_NOTO  = f"{_NOTO_DIR}/NotoSans-Regular.ttf"
-_FONT_NOTO_BOLD = f"{_NOTO_DIR}/NotoSans-Bold.ttf"
-_FONT_FALLBACK      = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-_FONT_FALLBACK_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+_FONT_DIR   = "/data/fonts"
+_FONT_REGULAR = f"{_FONT_DIR}/NotoSans-Regular.ttf"
+_FONT_BOLD    = f"{_FONT_DIR}/NotoSans-Bold.ttf"
 
-def _descargar_fuentes():
-    """Descarga NotoSans si no está disponible (solo al primer arranque)."""
-    import os
-    os.makedirs(_NOTO_DIR, exist_ok=True)
-    urls = [
-        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf", _FONT_NOTO),
-        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",    _FONT_NOTO_BOLD),
-    ]
-    for url, path in urls:
-        if not os.path.exists(path):
+# Todas las fuentes a descargar (NotoSans + DejaVu como fallback garantizado)
+_DEJAVU_REGULAR = f"{_FONT_DIR}/DejaVuSans.ttf"
+_DEJAVU_BOLD    = f"{_FONT_DIR}/DejaVuSans-Bold.ttf"
+
+_FONT_DOWNLOAD_LIST = [
+    (_FONT_REGULAR, [
+        "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+        "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+    ]),
+    (_FONT_BOLD, [
+        "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+        "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+    ]),
+    (_DEJAVU_REGULAR, [
+        "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans.ttf",
+        "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf",
+    ]),
+    (_DEJAVU_BOLD, [
+        "https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans-Bold.ttf",
+        "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf",
+    ]),
+]
+
+def _init_fonts():
+    """Descarga todas las fuentes necesarias al arrancar."""
+    _log = logging.getLogger(__name__)
+    os.makedirs(_FONT_DIR, exist_ok=True)
+    for dest, urls in _FONT_DOWNLOAD_LIST:
+        if os.path.exists(dest) and os.path.getsize(dest) > 50_000:
+            _log.info(f"Fuente OK (cache): {dest} ({os.path.getsize(dest)//1024}KB)")
+            continue
+        for url in urls:
             try:
-                urllib.request.urlretrieve(url, path)
-                logging.getLogger(__name__).info(f"Fuente descargada: {path}")
+                _log.info(f"Descargando fuente: {url}")
+                urllib.request.urlretrieve(url, dest)
+                size = os.path.getsize(dest)
+                if size > 50_000:
+                    _log.info(f"Fuente descargada: {dest} ({size//1024}KB)")
+                    break
+                else:
+                    _log.warning(f"Archivo muy pequeño ({size}B), reintentando...")
+                    os.remove(dest)
             except Exception as e:
-                logging.getLogger(__name__).warning(f"No se pudo descargar fuente {path}: {e}")
-
-_descargar_fuentes()
+                _log.warning(f"Falló {url}: {e}")
+        else:
+            _log.error(f"No se pudo descargar: {dest}")
 
 def _get_font(size, bold=False):
-    """Devuelve la mejor fuente disponible para el tamaño dado."""
-    import os
-    noto = _FONT_NOTO_BOLD if bold else _FONT_NOTO
-    fallback = _FONT_FALLBACK_BOLD if bold else _FONT_FALLBACK
-    path = noto if os.path.exists(noto) else fallback
-    return ImageFont.truetype(path, size)
+    """Devuelve la mejor fuente disponible. Prioridad: NotoSans > DejaVu descargado > sistema > básica."""
+    candidates = [
+        (_FONT_BOLD    if bold else _FONT_REGULAR),
+        (_DEJAVU_BOLD  if bold else _DEJAVU_REGULAR),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path) and os.path.getsize(path) > 50_000:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    # Último recurso: fuente por defecto de Pillow (no tiene unicode pero no crashea)
+    return ImageFont.load_default()
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
 from telegram.ext import (
@@ -2666,38 +2703,6 @@ def limpiar_nombre_tabla(nombre):
             continue
         resultado += c
     return resultado.strip()[:12] or nombre[:12]
-
-_FONT_DIR       = "/data/fonts"
-_FONT_REGULAR   = f"{_FONT_DIR}/NotoSans-Regular.ttf"
-_FONT_BOLD      = f"{_FONT_DIR}/NotoSans-Bold.ttf"
-_FONT_FALLBACK  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-_FONT_FALLBACK_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-def _init_fonts():
-    """Descarga NotoSans si no existe (amplia cobertura unicode: coreano, árabe, etc.)"""
-    import urllib.request
-    os.makedirs(_FONT_DIR, exist_ok=True)
-    urls = [
-        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf", _FONT_REGULAR),
-        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",    _FONT_BOLD),
-    ]
-    for url, dest in urls:
-        if not os.path.exists(dest):
-            try:
-                logger.info(f"Descargando fuente: {dest}")
-                urllib.request.urlretrieve(url, dest)
-                logger.info(f"Fuente descargada OK: {dest}")
-            except Exception as e:
-                logger.warning(f"No se pudo descargar {dest}: {e}")
-
-def _get_font(size, bold=False):
-    """Devuelve la mejor fuente disponible."""
-    primary = _FONT_BOLD if bold else _FONT_REGULAR
-    fallback = _FONT_FALLBACK_BOLD if bold else _FONT_FALLBACK
-    try:
-        return ImageFont.truetype(primary, size)
-    except Exception:
-        return ImageFont.truetype(fallback, size)
 
 def generar_imagen_marcador(chat_key, jugadores):
     """Genera un PNG con la tabla del marcador y devuelve bytes."""
