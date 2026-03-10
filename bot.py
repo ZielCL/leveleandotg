@@ -10,8 +10,42 @@ import random
 import sqlite3
 import anthropic
 import io
+import urllib.request
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
+
+# ── Fuentes con cobertura unicode completa ──────────────────────
+_NOTO_DIR   = "/data/fonts"
+_FONT_NOTO  = f"{_NOTO_DIR}/NotoSans-Regular.ttf"
+_FONT_NOTO_BOLD = f"{_NOTO_DIR}/NotoSans-Bold.ttf"
+_FONT_FALLBACK      = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+_FONT_FALLBACK_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+
+def _descargar_fuentes():
+    """Descarga NotoSans si no está disponible (solo al primer arranque)."""
+    import os
+    os.makedirs(_NOTO_DIR, exist_ok=True)
+    urls = [
+        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf", _FONT_NOTO),
+        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",    _FONT_NOTO_BOLD),
+    ]
+    for url, path in urls:
+        if not os.path.exists(path):
+            try:
+                urllib.request.urlretrieve(url, path)
+                logging.getLogger(__name__).info(f"Fuente descargada: {path}")
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"No se pudo descargar fuente {path}: {e}")
+
+_descargar_fuentes()
+
+def _get_font(size, bold=False):
+    """Devuelve la mejor fuente disponible para el tamaño dado."""
+    import os
+    noto = _FONT_NOTO_BOLD if bold else _FONT_NOTO
+    fallback = _FONT_FALLBACK_BOLD if bold else _FONT_FALLBACK
+    path = noto if os.path.exists(noto) else fallback
+    return ImageFont.truetype(path, size)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Conflict
 from telegram.ext import (
@@ -2632,16 +2666,45 @@ def limpiar_nombre_tabla(nombre):
         resultado += c
     return resultado.strip()[:6] or nombre[:6]
 
-_FONT_MONO      = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-_FONT_MONO_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+_FONT_DIR       = "/data/fonts"
+_FONT_REGULAR   = f"{_FONT_DIR}/NotoSans-Regular.ttf"
+_FONT_BOLD      = f"{_FONT_DIR}/NotoSans-Bold.ttf"
+_FONT_FALLBACK  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_FONT_FALLBACK_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+def _init_fonts():
+    """Descarga NotoSans si no existe (amplia cobertura unicode: coreano, árabe, etc.)"""
+    import urllib.request
+    os.makedirs(_FONT_DIR, exist_ok=True)
+    urls = [
+        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf", _FONT_REGULAR),
+        ("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",    _FONT_BOLD),
+    ]
+    for url, dest in urls:
+        if not os.path.exists(dest):
+            try:
+                logger.info(f"Descargando fuente: {dest}")
+                urllib.request.urlretrieve(url, dest)
+                logger.info(f"Fuente descargada OK: {dest}")
+            except Exception as e:
+                logger.warning(f"No se pudo descargar {dest}: {e}")
+
+def _get_font(size, bold=False):
+    """Devuelve la mejor fuente disponible."""
+    primary = _FONT_BOLD if bold else _FONT_REGULAR
+    fallback = _FONT_FALLBACK_BOLD if bold else _FONT_FALLBACK
+    try:
+        return ImageFont.truetype(primary, size)
+    except Exception:
+        return ImageFont.truetype(fallback, size)
 
 def generar_imagen_marcador(chat_key, jugadores):
     """Genera un PNG con la tabla del marcador y devuelve bytes."""
     try:
         FONT_SIZE = 22
-        font      = ImageFont.truetype(_FONT_MONO,      FONT_SIZE)
-        font_bold = ImageFont.truetype(_FONT_MONO_BOLD, FONT_SIZE)
-        font_title= ImageFont.truetype(_FONT_MONO_BOLD, 26)
+        font       = _get_font(FONT_SIZE)
+        font_bold  = _get_font(FONT_SIZE, bold=True)
+        font_title = _get_font(26, bold=True)
 
         # Colores
         BG     = (30,  30,  46)
@@ -2682,7 +2745,7 @@ def generar_imagen_marcador(chat_key, jugadores):
         draw = ImageDraw.Draw(img)
 
         # Título
-        titulo = t(chat_key, "titulo_marcador") if "titulo_marcador" in (get_idioma(chat_key) and {}) else ("Leaderboard" if lang == "en" else "Marcador")
+        titulo = "Leaderboard" if lang == "en" else "Marcador"
         draw.text((PAD, PAD // 2 + 2), f"  {titulo}", font=font_title, fill=GOLD)
 
         # Header
@@ -2731,9 +2794,9 @@ def generar_imagen_roles(chat_key, jugadores):
     """Genera un PNG con la tabla de roles y devuelve bytes."""
     try:
         FONT_SIZE = 24
-        font       = ImageFont.truetype(_FONT_MONO,      FONT_SIZE)
-        font_bold  = ImageFont.truetype(_FONT_MONO_BOLD, FONT_SIZE)
-        font_title = ImageFont.truetype(_FONT_MONO_BOLD, 28)
+        font       = _get_font(FONT_SIZE)
+        font_bold  = _get_font(FONT_SIZE, bold=True)
+        font_title = _get_font(28, bold=True)
 
         BG        = (22,  22,  35)
         HEADER_BG = (42,  44,  66)
@@ -2867,10 +2930,6 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_text(
-        t(chat_key, "marcador_titulo"),
-        parse_mode="MarkdownV2"
-    )
     img_buf = generar_imagen_marcador(chat_key, jugadores)
     if img_buf:
         await update.message.reply_photo(photo=img_buf)
@@ -3133,6 +3192,7 @@ async def set_commands(app):
 
 def main():
     init_db()
+    _init_fonts()
     app = Application.builder().token(TOKEN).post_init(set_commands).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
