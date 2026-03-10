@@ -1938,6 +1938,12 @@ TIMER_ADIV_SEGUNDOS = 30
 async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
     """Si el impostor no adivina en 30s, el grupo gana automáticamente."""
     await asyncio.sleep(TIMER_ADIV_SEGUNDOS)
+    try:
+        await _timer_adivinanza_body(chat_key, impostor_id, chat_id, thread_id, ctx)
+    except Exception as e:
+        logger.error(f"[TIMER_ADIV] excepcion no capturada: {e}", exc_info=True)
+
+async def _timer_adivinanza_body(chat_key, impostor_id, chat_id, thread_id, ctx):
 
     # Si ya fue respondido (datos limpiados), ignorar
     datos = ctx.bot_data.pop(f"adivinando_{chat_key}", None)
@@ -2015,6 +2021,12 @@ TIMER_TURNO_SEGUNDOS = 60
 async def _timer_turno(chat_key, user_id, chat_id, thread_id, ctx):
     """Callback que se ejecuta cuando expira el tiempo de turno."""
     await asyncio.sleep(TIMER_TURNO_SEGUNDOS)
+    try:
+        await _timer_turno_body(chat_key, user_id, chat_id, thread_id, ctx)
+    except Exception as e:
+        logger.error(f"[TIMER_TURNO] excepcion no capturada: {e}", exc_info=True)
+
+async def _timer_turno_body(chat_key, user_id, chat_id, thread_id, ctx):
 
     turno_data = ctx.bot_data.get(f"turno_{chat_key}")
     if not turno_data:
@@ -2486,10 +2498,11 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
 async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, _unused=None, bonus=False):
     logger.info(f"[FIN_GRUPO] iniciando chat_key={chat_key} palabra={palabra}")
     try:
+        tarea_actual = asyncio.current_task()
         tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
-        if tarea: tarea.cancel()
+        if tarea and tarea is not tarea_actual: tarea.cancel()
         tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
-        if tarea_adiv: tarea_adiv.cancel()
+        if tarea_adiv and tarea_adiv is not tarea_actual: tarea_adiv.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
         for j in jugadores:
@@ -2519,10 +2532,10 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
             cat=esc(categoria), tabla=tabla
         )
         logger.info(f"[FIN_GRUPO] texto generado len={len(texto_final)}, enviando...")
-        await ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id)
+        await asyncio.shield(ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id))
         logger.info(f"[FIN_GRUPO] mensaje enviado OK")
-    except Exception as e:
-        logger.error(f"[FIN_GRUPO] ERROR: {e}", exc_info=True)
+    except BaseException as e:
+        logger.error(f"[FIN_GRUPO] ERROR tipo={type(e).__name__}: {e}", exc_info=True)
         try:
             with get_conn() as conn:
                 row2 = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
@@ -2540,10 +2553,11 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
 async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, _unused=None, razon=None):
     logger.info(f"[FIN_IMPOSTORES] iniciando chat_key={chat_key} palabra={palabra} razon={razon}")
     try:
+        tarea_actual = asyncio.current_task()
         tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
-        if tarea: tarea.cancel()
+        if tarea and tarea is not tarea_actual: tarea.cancel()
         tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
-        if tarea_adiv: tarea_adiv.cancel()
+        if tarea_adiv and tarea_adiv is not tarea_actual: tarea_adiv.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
         for imp in impostores:
@@ -2581,10 +2595,10 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
             palabra=esc(palabra), cat=esc(categoria), tabla=tabla
         )
         logger.info(f"[FIN_IMPOSTORES] texto generado len={len(texto_final)}, enviando...")
-        await ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id)
+        await asyncio.shield(ctx.bot.send_message(chat_id, texto_final, parse_mode="MarkdownV2", message_thread_id=thread_id))
         logger.info(f"[FIN_IMPOSTORES] mensaje enviado OK")
-    except Exception as e:
-        logger.error(f"[FIN_IMPOSTORES] ERROR: {e}", exc_info=True)
+    except BaseException as e:
+        logger.error(f"[FIN_IMPOSTORES] ERROR tipo={type(e).__name__}: {e}", exc_info=True)
         try:
             with get_conn() as conn:
                 row2 = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
