@@ -2479,7 +2479,7 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
         await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
 
 
-async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, message, bonus=False):
+async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, _unused=None, bonus=False):
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
@@ -2495,29 +2495,30 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         sumar_derrota(chat_key, imp[0])
 
     with get_conn() as conn:
+        row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
         conn.execute(
             "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
             (chat_key, "grupo", palabra, categoria)
         )
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
+    chat_id = row[0] if row else int(chat_key.split("_")[0])
     marcador = get_marcador(chat_key)
     tabla = formatear_tabla(chat_key, marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
-
     texto_final = t(chat_key, "grupo_gana").format(
         impostores=nombres_impostores, palabra=esc(palabra),
         cat=esc(categoria), tabla=tabla
     )
     thread_id = get_thread_id(chat_key)
     await ctx.bot.send_message(
-        message.chat.id, texto_final,
+        chat_id, texto_final,
         parse_mode="MarkdownV2",
         message_thread_id=thread_id
     )
 
 
-async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, message, razon=None):
+async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, _unused=None, razon=None):
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
@@ -2533,12 +2534,14 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
             sumar_derrota(chat_key, j[0])
 
     with get_conn() as conn:
+        row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
         conn.execute(
             "INSERT INTO historial (chat_key, ganador, palabra, categoria) VALUES (?,?,?,?)",
             (chat_key, "impostor", palabra, categoria)
         )
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
+    chat_id = row[0] if row else int(chat_key.split("_")[0])
     marcador = get_marcador(chat_key)
     tabla = formatear_tabla(chat_key, marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
@@ -2556,7 +2559,7 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     )
     thread_id = get_thread_id(chat_key)
     await ctx.bot.send_message(
-        message.chat.id, texto_final,
+        chat_id, texto_final,
         parse_mode="MarkdownV2",
         message_thread_id=thread_id
     )
