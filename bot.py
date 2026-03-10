@@ -1892,7 +1892,7 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
             "impostor_ids_set": impostor_ids_set,
             "palabra": palabra,
             "categoria": categoria,
-            "jugadores": jugadores,
+            "jugadores": todos_jugadores,
             "vivos_restantes_ids": vivos_restantes_ids,
             "impostores_vivos": impostores_vivos,
             "inocentes_vivos_ids": inocentes_vivos_ids,
