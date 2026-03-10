@@ -1396,11 +1396,10 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await query.answer()
-
     # Verificar condiciones de error ANTES de llamar answer()
     # (Telegram solo permite una llamada a answer() por callback)
     partida = get_partida(chat_key)
+    logger.info(f"[btn_unirse] user={user.id} partida_estado={partida[2] if partida else None} activos={[j[0] for j in get_jugadores_activos(chat_key)]}")
     if not partida:
         await query.answer(t(chat_key, "sin_partida"), show_alert=True)
         return
@@ -1623,6 +1622,9 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     primer = orden[0]
     await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
+
+
+async def _abrir_votacion(chat_key, ctx, message):
     vivos_ids = get_vivos(chat_key)
     jugadores = get_jugadores_activos(chat_key)
     vivos = [j for j in jugadores if j[0] in vivos_ids]
