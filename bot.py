@@ -62,33 +62,32 @@ def _init_fonts():
 
 _FONT_CJK_REGULAR = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 _FONT_CJK_BOLD    = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+_FONT_UNIFONT     = "/usr/share/fonts/opentype/unifont/unifont.otf"
 
 def _get_font(size, bold=False):
-    """Devuelve NotoSansCJK (cubre coreano, japonés, chino, latin) o fallback."""
-    # Primero intentar NotoSansCJK del sistema (máxima cobertura unicode)
-    cjk = _FONT_CJK_BOLD if bold else _FONT_CJK_REGULAR
-    if os.path.exists(cjk):
-        try:
-            return ImageFont.truetype(cjk, size, index=0)
-        except Exception as e:
-            logging.getLogger(__name__).warning(f"Error NotoSansCJK: {e}")
-    # Fallback: NotoSans descargado
-    noto = _FONT_BOLD if bold else _FONT_REGULAR
-    if os.path.exists(noto) and os.path.getsize(noto) > 50_000:
-        try:
-            return ImageFont.truetype(noto, size)
-        except Exception:
-            pass
-    # Último recurso: sistema
-    for path in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    ]:
+    """Unifont tiene cobertura unicode máxima (runas, syllabics, etc.). Para bold usa FreeSansBold."""
+    if bold:
+        candidates = [
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            _FONT_CJK_BOLD,
+            _FONT_BOLD,
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            _FONT_UNIFONT,
+        ]
+    else:
+        candidates = [
+            _FONT_UNIFONT,
+            _FONT_CJK_REGULAR,
+            _FONT_REGULAR,
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ]
+    for path in candidates:
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"_get_font error {path}: {e}")
     return ImageFont.load_default()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
