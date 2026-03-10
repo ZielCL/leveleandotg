@@ -154,7 +154,8 @@ TEXTOS = {
         "resultado_votacion":       "🗳️ *Resultado de la votación:*\n\nEl grupo votó por *{nombre}*\n{etiqueta}\n\n*Votos:*\n{detalle}",
         "era_impostor":             "🕵️ ¡Era impostor\\!",
         "era_inocente":             "✅ Era inocente\\.",
-        "ultima_oportunidad":       "🎯 *¡Última oportunidad, {nombre}\\!*\n\nSi adivinas la palabra secreta *¡tú y todos los impostores ganarán\\!*\n\n📝 Escribe la palabra ahora en el chat\\.\n_Categoría: {cat}_",
+        "ultima_oportunidad":       "🎯 *¡Última oportunidad, {nombre}\\!*\n\nSi adivinas la palabra secreta *¡tú y todos los impostores ganarán\\!*\n\n📝 Escribe la palabra ahora en el chat\\.\n_Categoría: {cat}_\n⏱️ _Tienes 30 segundos\\._",
+        "adiv_timeout":             "⏰ *¡Tiempo\\!* [{nombre}](tg://user?id={uid}) no adivinó a tiempo\\. ¡El grupo gana\\!",
         "adivino":                  "🎯 *¡{nombre} adivinó la palabra\\!*\n\nLa palabra era *{palabra}*\\. ¡Los impostores ganan\\! 🕵️",
         "incorrecto":               "❌ *{nombre}* escribió *{texto}*\\.\\.\\. ¡Incorrecto\\!\n\n*{nombre}* queda eliminado definitivamente\\.",
         "confirmar_pista_btn":      "✅ Confirmar esta como mi pista",
@@ -336,7 +337,8 @@ TEXTOS = {
         "resultado_votacion":       "🗳️ *Voting result:*\n\nThe group voted for *{nombre}*\n{etiqueta}\n\n*Votes:*\n{detalle}",
         "era_impostor":             "🕵️ Was an impostor\\!",
         "era_inocente":             "✅ Was innocent\\.",
-        "ultima_oportunidad":       "🎯 *Last chance, {nombre}\\!*\n\nIf you guess the secret word *you and all impostors win\\!*\n\n📝 Write the word now in the chat\\.\n_Category: {cat}_",
+        "ultima_oportunidad":       "🎯 *Last chance, {nombre}\\!*\n\nIf you guess the secret word *you and all impostors win\\!*\n\n📝 Write the word now in the chat\\.\n_Category: {cat}_\n⏱️ _You have 30 seconds\\._",
+        "adiv_timeout":             "⏰ *Time's up\\!* [{nombre}](tg://user?id={uid}) didn't guess in time\\. The group wins\\!",
         "adivino":                  "🎯 *{nombre} guessed the word\\!*\n\nThe word was *{palabra}*\\. Impostors win\\! 🕵️",
         "incorrecto":               "❌ *{nombre}* wrote *{texto}*\\.\\.\\. Wrong\\!\n\n*{nombre}* is permanently eliminated\\.",
         "confirmar_pista_btn":      "✅ Confirm this as my clue",
@@ -1903,6 +1905,12 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
             t(chat_key, "ultima_oportunidad").format(nombre=esc(eliminado[1]), cat=esc(categoria)),
             parse_mode="MarkdownV2"
         )
+        chat_id = message.chat.id
+        thread_id = get_thread_id(chat_key)
+        tarea = asyncio.create_task(
+            _timer_adivinanza(chat_key, eliminado[0], chat_id, thread_id, ctx)
+        )
+        ctx.bot_data[f"timer_adiv_{chat_key}"] = tarea
         return
 
     # ── Inocente votado ──
@@ -1919,6 +1927,42 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         return
 
     await _nueva_ronda_pistas(chat_key, ctx, todos_jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, message)
+
+
+TIMER_ADIV_SEGUNDOS = 30
+
+async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
+    """Si el impostor no adivina en 30s, el grupo gana automáticamente."""
+    await asyncio.sleep(TIMER_ADIV_SEGUNDOS)
+
+    # Si ya fue respondido (datos limpiados), ignorar
+    datos = ctx.bot_data.pop(f"adivinando_{chat_key}", None)
+    if not datos:
+        return
+    # Verificar que sigue siendo el mismo impostor esperando
+    if datos.get("impostor_id") != impostor_id:
+        return
+
+    partida = get_partida(chat_key)
+    if not partida or partida[2] != "adivinando":
+        return
+
+    jugadores = datos["jugadores"]
+    impostores = datos["impostores"]
+    palabra = datos["palabra"]
+    categoria = datos["categoria"]
+    detalle_votos = datos["detalle_votos"]
+
+    nombre_j = next((j[1] for j in jugadores if j[0] == impostor_id), "?")
+
+    # Marcar partida como terminada antes de mandar mensaje
+    with get_conn() as conn:
+        conn.execute("UPDATE partidas SET estado='jugando' WHERE chat_key=?", (chat_key,))
+
+    msg_text = t(chat_key, "adiv_timeout").format(nombre=esc(nombre_j), uid=impostor_id)
+    msg = await ctx.bot.send_message(chat_id, msg_text, parse_mode="MarkdownV2", message_thread_id=thread_id)
+
+    await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
 
 
 TIMER_TURNO_SEGUNDOS = 60
@@ -2341,6 +2385,9 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
     impostor_ids_set = datos["impostor_ids_set"]
 
     ctx.bot_data.pop(f"adivinando_{chat_key}", None)
+    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+    if tarea_adiv:
+        tarea_adiv.cancel()
     await query.answer(t(chat_key, "pista_confirmada"))
     await query.message.delete()
 
@@ -2375,6 +2422,9 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
+    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+    if tarea_adiv:
+        tarea_adiv.cancel()
     impostor_ids_set = set(j[0] for j in impostores)
     for j in jugadores:
         if j[0] not in impostor_ids_set:
@@ -2407,6 +2457,9 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
+    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+    if tarea_adiv:
+        tarea_adiv.cancel()
     impostor_ids_set = set(j[0] for j in impostores)
     for imp in impostores:
         sumar_victoria(chat_key, imp[0])
@@ -2558,6 +2611,9 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
+    tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
+    if tarea_adiv:
+        tarea_adiv.cancel()
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
