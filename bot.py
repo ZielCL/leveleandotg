@@ -972,6 +972,10 @@ def esc(text):
     chars = r"\_*[]()~`>#+-=|{}.!"
     return "".join(f"\\{c}" if c in chars else c for c in str(text))
 
+def esc_link(text):
+    """Escape para texto dentro de [texto](url) — solo escapa ] y backslash."""
+    return str(text).replace("\\", "\\\\").replace("]", "\\]")
+
 def nombre(user):
     return user.first_name or user.username or str(user.id)
 
@@ -2000,7 +2004,7 @@ async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
         return
 
     # Sin intento → timeout real, el grupo gana
-    msg_text = t(chat_key, "adiv_timeout").format(nombre=nombre_j.replace("[","\\[").replace("]","\\]"), uid=impostor_id)
+    msg_text = t(chat_key, "adiv_timeout").format(nombre=esc_link(nombre_j), uid=impostor_id)
     msg = await ctx.bot.send_message(chat_id, msg_text, parse_mode="MarkdownV2", message_thread_id=thread_id)
 
     await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
@@ -2030,7 +2034,7 @@ async def _timer_turno(chat_key, user_id, chat_id, thread_id, ctx):
         # Tenía algo escrito → auto-confirmar
         await ctx.bot.send_message(
             chat_id,
-            t(chat_key, "turno_timeout_autoconf").format(nombre=esc(nombre_j), uid=user_id),
+            t(chat_key, "turno_timeout_autoconf").format(nombre=esc_link(nombre_j), uid=user_id),
             parse_mode="MarkdownV2",
             message_thread_id=thread_id
         )
@@ -2044,7 +2048,7 @@ async def _timer_turno(chat_key, user_id, chat_id, thread_id, ctx):
         # No escribió nada → saltar turno
         await ctx.bot.send_message(
             chat_id,
-            t(chat_key, "turno_timeout").format(nombre=esc(nombre_j), uid=user_id),
+            t(chat_key, "turno_timeout").format(nombre=esc_link(nombre_j), uid=user_id),
             parse_mode="MarkdownV2",
             message_thread_id=thread_id
         )
@@ -2100,7 +2104,7 @@ async def _anunciar_turno(chat_key, user_id, nombre_j, chat_id, thread_id, ctx):
 
     await ctx.bot.send_message(
         chat_id,
-        t(chat_key, "turno").format(nombre=esc(nombre_j), uid=user_id),
+        t(chat_key, "turno").format(nombre=esc_link(nombre_j), uid=user_id),
         parse_mode="MarkdownV2",
         message_thread_id=thread_id
     )
@@ -2480,6 +2484,22 @@ async def btn_confirmar_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYP
 
 
 async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, _unused=None, bonus=False):
+    logger.info(f"[_fin_grupo_gana] INICIO chat_key={chat_key} palabra={palabra}")
+    try:
+      await _fin_grupo_gana_impl(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, bonus)
+    except Exception as e:
+      logger.error(f"[_fin_grupo_gana] EXCEPCION GLOBAL: {e}", exc_info=True)
+      try:
+        with get_conn() as conn:
+          row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+        chat_id = row[0] if row else int(chat_key.split("_")[0])
+        thread_id = get_thread_id(chat_key)
+        texto_fb = "🎉 El grupo ganó\\!\n\nImpostores: " + ", ".join(i[1] for i in impostores) + "\nPalabra: " + palabra + " \\(" + categoria + "\\)\n\nUsa /playimpostor para otra ronda"
+        await ctx.bot.send_message(chat_id, texto_fb, message_thread_id=thread_id)
+      except Exception as e2:
+        logger.error(f"[_fin_grupo_gana] fallback fallido: {e2}")
+
+async def _fin_grupo_gana_impl(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, bonus=False):
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
@@ -2503,7 +2523,7 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     chat_id = row[0] if row else int(chat_key.split("_")[0])
-    marcador = get_marcador(chat_key)
+    marcador = get_marcador_global(chat_key)
     tabla = formatear_tabla(chat_key, marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
     texto_final = t(chat_key, "grupo_gana").format(
@@ -2511,14 +2531,43 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         cat=esc(categoria), tabla=tabla
     )
     thread_id = get_thread_id(chat_key)
-    await ctx.bot.send_message(
-        chat_id, texto_final,
-        parse_mode="MarkdownV2",
-        message_thread_id=thread_id
-    )
+    try:
+        await ctx.bot.send_message(
+            chat_id, texto_final,
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        logger.error(f"[_fin_grupo_gana] Error: {e}")
+        try:
+            texto_plano = (
+                f"🎉 ¡El grupo ganó!\n\n"
+                f"Los impostores eran: {', '.join(i[1] for i in impostores)}\n"
+                f"La palabra era: {palabra} ({categoria})\n\n"
+                f"Usa /playimpostor para otra ronda"
+            )
+            await ctx.bot.send_message(chat_id, texto_plano, message_thread_id=thread_id)
+        except Exception as e2:
+            logger.error(f"[_fin_grupo_gana] Fallback fallido: {e2}")
 
 
 async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, _unused=None, razon=None):
+    logger.info(f"[_fin_impostores_ganan] INICIO chat_key={chat_key} palabra={palabra} razon={razon}")
+    try:
+      await _fin_impostores_ganan_impl(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, razon)
+    except Exception as e:
+      logger.error(f"[_fin_impostores_ganan] EXCEPCION GLOBAL: {e}", exc_info=True)
+      try:
+        with get_conn() as conn:
+          row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
+        chat_id = row[0] if row else int(chat_key.split("_")[0])
+        thread_id = get_thread_id(chat_key)
+        texto_fb = "🕵️ Los impostores ganaron\\!\n\nEran: " + ", ".join(i[1] for i in impostores) + "\nPalabra: " + palabra + " \\(" + categoria + "\\)\n\nUsa /playimpostor para otra ronda"
+        await ctx.bot.send_message(chat_id, texto_fb, message_thread_id=thread_id)
+      except Exception as e2:
+        logger.error(f"[_fin_impostores_ganan] fallback fallido: {e2}")
+
+async def _fin_impostores_ganan_impl(chat_key, ctx, partida, jugadores, impostores, eliminado, palabra, categoria, detalle_votos, razon=None):
     tarea = ctx.bot_data.pop(f"timer_{chat_key}", None)
     if tarea:
         tarea.cancel()
@@ -2542,7 +2591,7 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
 
     chat_id = row[0] if row else int(chat_key.split("_")[0])
-    marcador = get_marcador(chat_key)
+    marcador = get_marcador_global(chat_key)
     tabla = formatear_tabla(chat_key, marcador)
     nombres_impostores = ", ".join(f"*{esc(i[1])}*" for i in impostores)
 
@@ -2558,11 +2607,24 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
         palabra=esc(palabra), cat=esc(categoria), tabla=tabla
     )
     thread_id = get_thread_id(chat_key)
-    await ctx.bot.send_message(
-        chat_id, texto_final,
-        parse_mode="MarkdownV2",
-        message_thread_id=thread_id
-    )
+    try:
+        await ctx.bot.send_message(
+            chat_id, texto_final,
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        logger.error(f"[_fin_impostores_ganan] Error: {e}")
+        try:
+            texto_plano = (
+                f"🕵️ ¡Los impostores ganaron!\n\n"
+                f"Eran: {', '.join(i[1] for i in impostores)}\n"
+                f"La palabra era: {palabra} ({categoria})\n\n"
+                f"Usa /playimpostor para otra ronda"
+            )
+            await ctx.bot.send_message(chat_id, texto_plano, message_thread_id=thread_id)
+        except Exception as e2:
+            logger.error(f"[_fin_impostores_ganan] Fallback fallido: {e2}")
 
 
 def limpiar_nombre_tabla(nombre):
