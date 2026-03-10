@@ -61,11 +61,12 @@ def _init_fonts():
             _log.error(f"No se pudo descargar: {dest}")
 
 def _get_font(size, bold=False):
-    """Devuelve la mejor fuente disponible. Prioridad: NotoSans > DejaVu descargado > sistema > básica."""
+    """Devuelve la mejor fuente disponible. Prioridad: NotoSansCJK sistema > NotoSans descargado > DejaVu > básica."""
     candidates = [
-        (_FONT_BOLD    if bold else _FONT_REGULAR),
-        (_DEJAVU_BOLD  if bold else _DEJAVU_REGULAR),
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"    if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        _FONT_BOLD    if bold else _FONT_REGULAR,
+        _DEJAVU_BOLD  if bold else _DEJAVU_REGULAR,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"   if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     ]
     for path in candidates:
@@ -74,7 +75,6 @@ def _get_font(size, bold=False):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
-    # Último recurso: fuente por defecto de Pillow (no tiene unicode pero no crashea)
     return ImageFont.load_default()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
