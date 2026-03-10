@@ -167,17 +167,59 @@ def _get_font(size: int, bold: bool = False):
             return f
     return ImageFont.load_default()
 
+# Cmap de fuentes vectoriales principales (cargados al inicio)
+_CMAP_PRIMARY: set = set()    # DejaVuSans
+_CMAP_SECONDARY: set = set()  # NotoSans
+
+def _ensure_cmaps():
+    """Carga los cmaps de las fuentes vectoriales principales (llamar una vez)."""
+    global _CMAP_PRIMARY, _CMAP_SECONDARY
+    if not _CMAP_PRIMARY:
+        _CMAP_PRIMARY = _get_font_cmap(_FONT_DEJAVUSANS)
+    if not _CMAP_SECONDARY:
+        _CMAP_SECONDARY = _get_font_cmap(_FONT_REGULAR)
+
 def draw_text_smart(draw, pos, text: str, size: int, fill):
-    """Dibuja texto eligiendo automáticamente la mejor fuente para cada carácter."""
+    """Dibuja texto mezclando fuentes:
+    - DejaVuSans / NotoSans (vectoriales, tamaño real) para chars cubiertos
+    - Unifont a 16px (bitmap nativo) para chars exóticos — evita cuadrados
+    """
+    _ensure_cmaps()
     x, y = pos
+    UNIFONT_NATIVE = 16  # Unifont es bitmap, solo legible a su tamaño nativo
+
     for char in text:
         if char == " ":
             x += size // 3
             continue
-        font = _best_font_for_char(char, size)
-        bbox = draw.textbbox((0, 0), char, font=font)
-        draw.text((x, y), char, font=font, fill=fill)
-        x += max(bbox[2] - bbox[0], 2)
+        cp = ord(char)
+
+        if cp in _CMAP_PRIMARY:
+            # Fuente vectorial principal (DejaVuSans)
+            f = _load(_FONT_DEJAVUSANS, size)
+        elif cp in _CMAP_SECONDARY:
+            # Fuente vectorial secundaria (NotoSans)
+            f = _load(_FONT_REGULAR, size)
+        else:
+            f = None
+
+        if f:
+            draw.text((x, y), char, font=f, fill=fill)
+            bb = draw.textbbox((0, 0), char, font=f)
+            x += max(bb[2] - bb[0], 4)
+        else:
+            # Fallback: Unifont a su tamaño nativo 16px
+            f_uni = _load(_FONT_UNIFONT, UNIFONT_NATIVE) or _load(_FONT_UNIFONT_SYS, UNIFONT_NATIVE)
+            if f_uni:
+                y_adj = y + (size - UNIFONT_NATIVE) // 2
+                draw.text((x, y_adj), char, font=f_uni, fill=fill)
+                bb = draw.textbbox((0, 0), char, font=f_uni)
+                # Escalar el avance horizontal para que sea proporcional al size principal
+                char_w = max(bb[2] - bb[0], 4)
+                x += int(char_w * size / UNIFONT_NATIVE * 0.75)
+            else:
+                # Sin fuente disponible, avanzar espacio en blanco
+                x += size // 2
     return x
 
 def _init_fonts():
