@@ -69,79 +69,100 @@ _FONT_UNIFONT_SYS = "/usr/share/fonts/opentype/unifont/unifont.otf"
 _FONT_FREESERIF   = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"
 _FONT_FREESANS    = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
 _FONT_FREESANSBOLD= "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+_FONT_DEJAVUSANS  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_FONT_DEJAVUBOLD  = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-# Cache de fuentes cargadas por tamaño
+# Orden de fuentes a probar para cada carácter (de mayor a menor cobertura unicode)
+_RENDER_FONT_PRIORITY = [
+    _FONT_UNIFONT,        # descargado — cobertura BMP completa
+    _FONT_UNIFONT_SYS,    # sistema — idem
+    _FONT_FREESERIF,      # math unicode, muchos scripts
+    _FONT_CJK_REGULAR,    # CJK/coreano (si existe en Render)
+    _FONT_FREESANS,
+    _FONT_DEJAVUSANS,
+    _FONT_REGULAR,
+]
+_RENDER_FONT_PRIORITY_BOLD = [
+    _FONT_FREESANSBOLD,
+    _FONT_UNIFONT,
+    _FONT_UNIFONT_SYS,
+    _FONT_CJK_BOLD,
+    _FONT_DEJAVUBOLD,
+    _FONT_BOLD,
+]
+
+# Cache: (path, size) → ImageFont
 _font_cache = {}
+# Cache: (codepoint, size) → mejor fuente
+_char_font_cache = {}
+# PUA char para detectar .notdef (ninguna fuente lo asigna)
+_NOTDEF_REF = "\uE000"
 
 def _load(path, size):
-    """Carga fuente con cache. Retorna None si no existe."""
+    """Carga fuente con cache. Retorna None si falla."""
     key = (path, size)
     if key in _font_cache:
         return _font_cache[key]
-    if os.path.exists(path) and os.path.getsize(path) > 10_000:
+    result = None
+    if path and os.path.exists(path) and os.path.getsize(path) > 10_000:
         try:
-            f = ImageFont.truetype(path, size)
-            _font_cache[key] = f
-            return f
+            result = ImageFont.truetype(path, size)
         except Exception:
             pass
-    _font_cache[key] = None
-    return None
+    _font_cache[key] = result
+    return result
+
+def _font_has_glyph(font, char):
+    """Retorna True si la fuente renderiza el carácter (no como .notdef)."""
+    try:
+        img_c = Image.new("L", (30, 30), 0)
+        img_r = Image.new("L", (30, 30), 0)
+        ImageDraw.Draw(img_c).text((2, 2), char,          font=font, fill=255)
+        ImageDraw.Draw(img_r).text((2, 2), _NOTDEF_REF,   font=font, fill=255)
+        return img_c.tobytes() != img_r.tobytes()
+    except Exception:
+        return False
+
+def _best_font_for_char(char, size):
+    """Encuentra la mejor fuente disponible para un carácter específico."""
+    key = (ord(char), size)
+    if key in _char_font_cache:
+        return _char_font_cache[key]
+    for path in _RENDER_FONT_PRIORITY:
+        f = _load(path, size)
+        if f and _font_has_glyph(f, char):
+            _char_font_cache[key] = f
+            return f
+    # Fallback: primera fuente disponible
+    for path in _RENDER_FONT_PRIORITY:
+        f = _load(path, size)
+        if f:
+            _char_font_cache[key] = f
+            return f
+    result = ImageFont.load_default()
+    _char_font_cache[key] = result
+    return result
 
 def _get_font(size, bold=False):
-    """Fuente principal para headers y texto general."""
-    candidates = [
-        _FONT_FREESANSBOLD if bold else _FONT_FREESANS,
-        _FONT_UNIFONT if bold else _FONT_UNIFONT,
-        _FONT_UNIFONT_SYS,
-        _FONT_CJK_BOLD if bold else _FONT_CJK_REGULAR,
-        _FONT_BOLD if bold else _FONT_REGULAR,
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for path in candidates:
+    """Fuente principal para headers/labels (no nombres de usuario)."""
+    priority = _RENDER_FONT_PRIORITY_BOLD if bold else _RENDER_FONT_PRIORITY
+    for path in priority:
         f = _load(path, size)
         if f:
             return f
     return ImageFont.load_default()
 
-def _font_for_char(char, size):
-    """Selecciona la fuente correcta según el bloque unicode del carácter."""
-    cp = ord(char)
-    # Math Alphanumeric Symbols (𝓩𝓪𝓮𝓵, 𝙄𝙧𝙧𝙚𝙜𝙪𝙡𝙖𝙧) → FreeSerif
-    if 0x1D400 <= cp <= 0x1D7FF:
-        f = _load(_FONT_FREESERIF, size)
-        if f: return f
-    # Runas, Syllabics canadienses, Cherokee, otros scripts → Unifont
-    if (0x0500 <= cp <= 0x052F or   # Suplemento cirílico
-        0x1400 <= cp <= 0x167F or   # Syllabics canadienses
-        0x13A0 <= cp <= 0x13FF or   # Cherokee
-        0x16A0 <= cp <= 0x16FF or   # Runas
-        0x1C00 <= cp <= 0x1CFF or   # Sundanese, Batak, Lepcha
-        0x2C00 <= cp <= 0x2C5F):    # Glagolítico
-        f = (_load(_FONT_UNIFONT, size) or _load(_FONT_UNIFONT_SYS, size))
-        if f: return f
-    # Coreano, CJK → NotoSansCJK o Unifont
-    if (0xAC00 <= cp <= 0xD7AF or 0x4E00 <= cp <= 0x9FFF or
-        0x3040 <= cp <= 0x30FF):
-        f = (_load(_FONT_CJK_REGULAR, size) or
-             _load(_FONT_UNIFONT, size) or
-             _load(_FONT_UNIFONT_SYS, size))
-        if f: return f
-    # Latin y todo lo demás → FreeSans → Unifont → NotoSans
-    return (_load(_FONT_FREESANS, size) or
-            _load(_FONT_UNIFONT, size) or
-            _load(_FONT_UNIFONT_SYS, size) or
-            _load(_FONT_REGULAR, size) or
-            ImageFont.load_default())
-
 def draw_text_smart(draw, pos, text, size, fill):
-    """Dibuja texto usando la fuente correcta para cada carácter según su bloque unicode."""
+    """Dibuja texto eligiendo automáticamente la mejor fuente para cada carácter."""
     x, y = pos
     for char in text:
-        font = _font_for_char(char, size)
+        if char == " ":
+            x += size // 3
+            continue
+        font = _best_font_for_char(char, size)
         bbox = draw.textbbox((0, 0), char, font=font)
         draw.text((x, y), char, font=font, fill=fill)
-        x += bbox[2] - bbox[0]
+        x += max(bbox[2] - bbox[0], 2)
     return x
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
