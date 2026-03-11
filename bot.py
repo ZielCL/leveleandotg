@@ -1800,7 +1800,6 @@ async def _unirse(chat_key, user, reply_fn, bot=None):
 
 async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     chat_key = get_chat_key(update)
     user = update.effective_user
 
@@ -1817,6 +1816,7 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(t(chat_key, "pocos_jugadores").format(n=len(jugadores)), show_alert=True)
         return
 
+    await query.answer()
     categorias = cats(chat_key)
     keyboard = [
         [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
@@ -1832,7 +1832,6 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     chat_key = get_chat_key(update)
     chat_id = update.effective_chat.id
     user = update.effective_user
@@ -1844,7 +1843,10 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Evitar doble ejecución: solo proceder si sigue en estado 'esperando'
     if partida[2] != "esperando":
+        await query.answer()
         return
+
+    await query.answer()
 
     # Marcar como 'iniciando' atómicamente para bloquear segundos clics
     with get_conn() as conn:
