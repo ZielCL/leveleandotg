@@ -2594,47 +2594,17 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not datos or user.id != datos["impostor_id"]:
             return
 
-        palabra = datos["palabra"]
-        jugadores = datos["jugadores"]
-        categoria = datos["categoria"]
-        detalle_votos = datos["detalle_votos"]
-        impostores = datos["impostores"]
-        vivos_restantes_ids = datos["vivos_restantes_ids"]
-        impostores_vivos = datos["impostores_vivos"]
-        inocentes_vivos_ids = datos["inocentes_vivos_ids"]
-        impostor_ids_set = datos["impostor_ids_set"]
-
-        # Cancelar timer y procesar directamente sin confirmación
-        ctx.bot_data.pop(f"adivinando_{chat_key}", None)
-        tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
-        if tarea_adiv:
-            tarea_adiv.cancel()
-
-        chat_id = update.effective_chat.id
-        thread_id = get_thread_id(chat_key)
-
-        async def send(text):
-            return await ctx.bot.send_message(chat_id, text, parse_mode="MarkdownV2", message_thread_id=thread_id)
-
-        if normalizar(texto) == normalizar(palabra):
-            msg = await send(t(chat_key, "adivino").format(nombre=esc(nombre(user)), palabra=esc(palabra)))
-            await _fin_impostores_ganan(
-                chat_key, ctx, partida, jugadores, impostores,
-                None, palabra, categoria, detalle_votos, msg
-            )
-        else:
-            msg = await send(t(chat_key, "incorrecto").format(nombre=esc(nombre(user)), texto=esc(texto.lower())))
-            if not impostores_vivos:
-                await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
-                return
-            inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
-            if len(inocentes_restantes) <= 1:
-                await _fin_impostores_ganan(
-                    chat_key, ctx, partida, jugadores, impostores,
-                    None, palabra, categoria, detalle_votos, msg, razon="supervivencia"
-                )
-                return
-            await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
+        # Guardar intento y mostrar botón de confirmación
+        datos["intento"] = texto
+        keyboard = [[InlineKeyboardButton(
+            t(chat_key, "confirmar_adivinanza_btn"),
+            callback_data=f"confirmar_adiv:{user.id}"
+        )]]
+        await update.message.reply_text(
+            t(chat_key, "confirmar_adivinanza_msg").format(palabra=esc(texto)),
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
     # ── Modo pistas: detectar turno ──
