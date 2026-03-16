@@ -3473,39 +3473,42 @@ async def error_handler(update, ctx):
 
 
 async def set_commands(app):
-    from telegram import BotCommand
+    from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats
+
+    # Comandos visibles para usuarios en español
     cmds_es = [
-        BotCommand("playimpostor",  "🎮 Crear una nueva partida"),
-        BotCommand("join",          "✋ Unirse a la partida"),
-        BotCommand("vote",          "🗳️ Abrir votación (solo creador)"),
-        BotCommand("howtoplay",     "📖 Cómo se juega"),
-        BotCommand("score",         "🏆 Ver marcador"),
-        BotCommand("roles",         "🎭 Ver estadísticas de roles"),
-        BotCommand("language",      "🌐 Cambiar idioma"),
-        BotCommand("cancel",        "❌ Cancelar partida (solo creador)"),
-        BotCommand("resetimpostor", "🔄 Resetear puntajes (solo admins)"),
-        BotCommand("addword",       "➕ Agregar palabra personalizada"),
-        BotCommand("removeword",    "➖ Eliminar palabra personalizada"),
-        BotCommand("words",         "📋 Ver palabras personalizadas"),
+        BotCommand("playimpostor",  "Crear una nueva partida"),
+        BotCommand("join",          "Unirse a la partida"),
+        BotCommand("vote",          "Abrir votacion (solo creador)"),
+        BotCommand("howtoplay",     "Como se juega"),
+        BotCommand("score",         "Ver marcador"),
+        BotCommand("roles",         "Ver estadisticas de roles"),
+        BotCommand("language",      "Cambiar idioma"),
+        BotCommand("cancel",        "Cancelar partida (solo creador)"),
     ]
+    # Comandos visibles para usuarios en inglés
     cmds_en = [
-        BotCommand("playimpostor",  "🎮 Create a new game"),
-        BotCommand("join",          "✋ Join the game"),
-        BotCommand("vote",          "🗳️ Open voting (creator only)"),
-        BotCommand("howtoplay",     "📖 How to play"),
-        BotCommand("score",         "🏆 View scoreboard"),
-        BotCommand("roles",         "🎭 View role stats"),
-        BotCommand("language",      "🌐 Change language"),
-        BotCommand("cancel",        "❌ Cancel game (creator only)"),
-        BotCommand("resetimpostor", "🔄 Reset scores (admins only)"),
-        BotCommand("addword",       "➕ Add custom word"),
-        BotCommand("removeword",    "➖ Remove custom word"),
-        BotCommand("words",         "📋 View custom words"),
+        BotCommand("playimpostor",  "Create a new game"),
+        BotCommand("join",          "Join the game"),
+        BotCommand("vote",          "Open voting (creator only)"),
+        BotCommand("howtoplay",     "How to play"),
+        BotCommand("score",         "View scoreboard"),
+        BotCommand("roles",         "View role stats"),
+        BotCommand("language",      "Change language"),
+        BotCommand("cancel",        "Cancel game (creator only)"),
     ]
-    await app.bot.set_my_commands(cmds_es, language_code="es")
-    await app.bot.set_my_commands(cmds_en, language_code="en")
-    await app.bot.set_my_commands(cmds_en)  # fallback para otros idiomas
-    logger.info("✅ Comandos registrados en Telegram (ES + EN).")
+
+    # Registrar para grupos (donde se juega)
+    await app.bot.set_my_commands(cmds_es, scope=BotCommandScopeAllGroupChats(), language_code="es")
+    await app.bot.set_my_commands(cmds_en, scope=BotCommandScopeAllGroupChats(), language_code="en")
+    await app.bot.set_my_commands(cmds_es, scope=BotCommandScopeAllGroupChats())  # fallback grupos
+
+    # Registrar para chat privado con el bot
+    await app.bot.set_my_commands(cmds_es, scope=BotCommandScopeAllPrivateChats(), language_code="es")
+    await app.bot.set_my_commands(cmds_en, scope=BotCommandScopeAllPrivateChats(), language_code="en")
+    await app.bot.set_my_commands(cmds_es, scope=BotCommandScopeAllPrivateChats())  # fallback privado
+
+    logger.info("✅ Comandos registrados en Telegram (grupos + privado, ES + EN).")
 
 def main():
     init_db()
