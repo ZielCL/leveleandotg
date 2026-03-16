@@ -3474,17 +3474,38 @@ async def error_handler(update, ctx):
 
 async def set_commands(app):
     from telegram import BotCommand
-    await app.bot.set_my_commands([
-        BotCommand("playimpostor", "🎮 Create a new game"),
-        BotCommand("join",         "✋ Join the current game"),
-        BotCommand("vote",         "🗳️ Open voting (creator only)"),
-        BotCommand("howtoplay",    "📖 How to play"),
-        BotCommand("score",        "🏆 View scoreboard"),
-        BotCommand("language",     "🌐 Change language"),
-        BotCommand("resetimpostor","🔄 Reset scores (admins only)"),
-        BotCommand("cancel",       "❌ Cancel current game (creator only)"),
-    ])
-    logger.info("✅ Comandos registrados en Telegram.")
+    cmds_es = [
+        BotCommand("playimpostor",  "🎮 Crear una nueva partida"),
+        BotCommand("join",          "✋ Unirse a la partida"),
+        BotCommand("vote",          "🗳️ Abrir votación (solo creador)"),
+        BotCommand("howtoplay",     "📖 Cómo se juega"),
+        BotCommand("score",         "🏆 Ver marcador"),
+        BotCommand("roles",         "🎭 Ver estadísticas de roles"),
+        BotCommand("language",      "🌐 Cambiar idioma"),
+        BotCommand("cancel",        "❌ Cancelar partida (solo creador)"),
+        BotCommand("resetimpostor", "🔄 Resetear puntajes (solo admins)"),
+        BotCommand("addword",       "➕ Agregar palabra personalizada"),
+        BotCommand("removeword",    "➖ Eliminar palabra personalizada"),
+        BotCommand("words",         "📋 Ver palabras personalizadas"),
+    ]
+    cmds_en = [
+        BotCommand("playimpostor",  "🎮 Create a new game"),
+        BotCommand("join",          "✋ Join the game"),
+        BotCommand("vote",          "🗳️ Open voting (creator only)"),
+        BotCommand("howtoplay",     "📖 How to play"),
+        BotCommand("score",         "🏆 View scoreboard"),
+        BotCommand("roles",         "🎭 View role stats"),
+        BotCommand("language",      "🌐 Change language"),
+        BotCommand("cancel",        "❌ Cancel game (creator only)"),
+        BotCommand("resetimpostor", "🔄 Reset scores (admins only)"),
+        BotCommand("addword",       "➕ Add custom word"),
+        BotCommand("removeword",    "➖ Remove custom word"),
+        BotCommand("words",         "📋 View custom words"),
+    ]
+    await app.bot.set_my_commands(cmds_es, language_code="es")
+    await app.bot.set_my_commands(cmds_en, language_code="en")
+    await app.bot.set_my_commands(cmds_en)  # fallback para otros idiomas
+    logger.info("✅ Comandos registrados en Telegram (ES + EN).")
 
 def main():
     init_db()
