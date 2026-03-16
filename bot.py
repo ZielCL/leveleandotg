@@ -3513,7 +3513,7 @@ async def set_commands(app):
 def main():
     init_db()
     _init_fonts()
-    app = Application.builder().token(TOKEN).post_init(set_commands).build()
+    app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("playimpostor", cmd_nueva))
