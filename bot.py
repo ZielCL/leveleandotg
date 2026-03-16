@@ -1298,8 +1298,10 @@ def esc(text):
     return "".join(f"\\{c}" if c in chars else c for c in str(text))
 
 def esc_link(text):
-    """Escape para texto dentro de [texto](url) — solo escapa ] y backslash."""
-    return str(text).replace("\\", "\\\\").replace("]", "\\]")
+    """Escape para texto dentro de [texto](url) en MarkdownV2."""
+    # Dentro de [texto](url) hay que escapar todos los chars especiales de MarkdownV2
+    chars = r"\_*[]()~`>#+-=|{}.!"
+    return "".join(f"\\{c}" if c in chars else c for c in str(text))
 
 def nombre(user):
     return user.first_name or user.username or str(user.id)
@@ -2516,9 +2518,15 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 parse_mode="MarkdownV2"
             )
         except Exception:
-            await query.message.delete()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass  # si no se puede borrar, continuar igual
     else:
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
     turno_data["ya_dieron_pista"].add(user.id)
     siguiente_index = index + 1
