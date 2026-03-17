@@ -430,6 +430,7 @@ TEXTOS = {
             "`/language` — Cambiar idioma\n"
             "`/cancel` — Cancelar partida"
         ),
+        "partida_activa":           "⚠️ Ya hay una partida activa\\. Usa /cancel para cancelarla primero\\.",
         "bot_no_iniciado":          "⚠️ Debes iniciar el bot primero para recibir tu palabra secreta.\n\nAbre el chat privado con el bot, presiona INICIAR y luego vuelve aquí para unirte.",
         "btn_unirse":               "✋ Unirse a la partida",
         "nueva_partida":            "🎮 *{nombre} creó una nueva partida del juego Impostor\\!*\n\nPulsen el botón o usen /join para sumarse\\.\nCuando estén listos, el creador pulsa *¡Iniciar partida\\!*",
@@ -622,6 +623,7 @@ TEXTOS = {
             "`/language` — Change language\n"
             "`/cancel` — Cancel game"
         ),
+        "partida_activa":           "⚠️ There's already an active game\\. Use /cancel to cancel it first\\.",
         "bot_no_iniciado":          "⚠️ You need to start the bot first to receive your secret word.\n\nOpen the private chat with the bot, press START and then come back here to join.",
         "btn_unirse":               "✋ Join the game",
         "nueva_partida":            "🎮 *{nombre} created a new Impostor game\\!*\n\nPress the button or use /join to join\\.\nWhen ready, the creator presses *Start game\\!*",
@@ -3410,6 +3412,10 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
     if tarea_adiv:
         tarea_adiv.cancel()
+    ctx.bot_data.pop(f"turno_{chat_key}", None)
+    ctx.bot_data.pop(f"adivinando_{chat_key}", None)
+    ctx.bot_data.pop(f"votos_{chat_key}", None)
+    ctx.bot_data.pop(f"revotacion_{chat_key}", None)
 
     with get_conn() as conn:
         conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
@@ -3537,26 +3543,26 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_rivalidad(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Muestra estadísticas de votos mutuos entre dos jugadores."""
+    """Muestra estadísticas de votos mutuos entre dos jugadores.
+    - /rivalidad @usuario  → yo contra ese jugador
+    - /rivalidad @usuario1 @usuario2 → cualquiera contra cualquiera
+    """
     chat_key = get_chat_key(update)
+    user = update.effective_user
 
-    # Necesita menciones a 2 usuarios
-    if not update.message.entities:
+    menciones = []
+    if update.message.entities:
+        menciones = [e for e in update.message.entities
+                     if e.type in ("mention", "text_mention")]
+
+    if not menciones:
         await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
         return
 
-    menciones = [e for e in update.message.entities if e.type == "mention" or e.type == "text_mention"]
-    if len(menciones) < 2:
-        await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
-        return
-
-    # Extraer user_ids de las menciones
-    user_ids = []
-    user_names = []
-    for m in menciones[:2]:
+    # Resolver menciones a (user_id, nombre)
+    def resolver_mencion(m):
         if m.type == "text_mention" and m.user:
-            user_ids.append(m.user.id)
-            user_names.append(m.user.first_name)
+            return m.user.id, m.user.first_name
         elif m.type == "mention":
             username = update.message.text[m.offset+1:m.offset+m.length]
             with get_conn() as conn:
@@ -3565,29 +3571,43 @@ async def cmd_rivalidad(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     (chat_key, username)
                 ).fetchone()
             if row:
-                user_ids.append(row[0])
-                user_names.append(row[1])
-            else:
-                await update.message.reply_text(
-                    esc(f"⚠️ No encontré a @{username} en este grupo."),
-                    parse_mode="MarkdownV2"
-                )
-                return
+                return row[0], row[1]
+            return None, username
+        return None, "?"
 
-    if len(user_ids) < 2:
-        await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
-        return
-
-    id_a, id_b = user_ids[0], user_ids[1]
-    name_a, name_b = user_names[0], user_names[1]
+    if len(menciones) == 1:
+        # Modo: yo contra ese jugador
+        id_b, name_b = resolver_mencion(menciones[0])
+        if id_b is None:
+            await update.message.reply_text(
+                esc(f"⚠️ No encontré a @{name_b} en este grupo."),
+                parse_mode="MarkdownV2"
+            )
+            return
+        id_a = user.id
+        name_a = nombre(user)
+    else:
+        # Modo: cualquiera contra cualquiera
+        id_a, name_a = resolver_mencion(menciones[0])
+        id_b, name_b = resolver_mencion(menciones[1])
+        if id_a is None:
+            await update.message.reply_text(
+                esc(f"⚠️ No encontré a @{name_a} en este grupo."),
+                parse_mode="MarkdownV2"
+            )
+            return
+        if id_b is None:
+            await update.message.reply_text(
+                esc(f"⚠️ No encontré a @{name_b} en este grupo."),
+                parse_mode="MarkdownV2"
+            )
+            return
 
     with get_conn() as conn:
-        # A votó a B
         a_a_b = conn.execute(
             "SELECT COUNT(*) FROM votos_historial WHERE chat_key=? AND voter_id=? AND voted_id=?",
             (chat_key, id_a, id_b)
         ).fetchone()[0]
-        # B votó a A
         a_b_a = conn.execute(
             "SELECT COUNT(*) FROM votos_historial WHERE chat_key=? AND voter_id=? AND voted_id=?",
             (chat_key, id_b, id_a)
@@ -3601,7 +3621,6 @@ async def cmd_rivalidad(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     palabra_veces = "veces" if lang == "es" else "times"
     titulo = t(chat_key, "rivalidad_titulo")
 
-    # Barra visual proporcional (10 bloques total)
     total = a_a_b + a_b_a
     bloques_a = round(a_a_b / total * 10) if total > 0 else 0
     bloques_b = 10 - bloques_a
