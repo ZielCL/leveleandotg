@@ -516,6 +516,13 @@ TEXTOS = {
         "solo_admin_idioma":        "⚠️ Solo los administradores del grupo pueden cambiar el idioma.",
         "btn_es":                   "🇪🇸 Español",
         "btn_en":                   "🇬🇧 English",
+        "start_privado":             (
+            "✅ *¡Listo\\!* Ya puedes recibir tu palabra secreta\\.\n\n"
+            "Vuelve al grupo y presiona *Unirse* o usa `/join` para entrar a la partida\\."
+        ),
+        "rivalidad_titulo":        "⚔️ *Rivalidad*\n\n",
+        "rivalidad_uso":           "⚠️ Uso: `/rivalidad @usuario1 @usuario2`",
+        "rivalidad_sin_datos":     "📊 No hay votos registrados entre estos jugadores aún\\.",
         "pistas_fallback":          "1. Piensa en sus características principales\n2. Recuerda dónde o cómo se usa",
         "prompt_pistas":            (
             "Genera exactamente 2 pistas para describir '{palabra}' (categoría: {categoria}) "
@@ -701,6 +708,13 @@ TEXTOS = {
         "solo_admin_idioma":        "⚠️ Only group admins can change the language.",
         "btn_es":                   "🇪🇸 Español",
         "btn_en":                   "🇬🇧 English",
+        "start_privado":             (
+            "✅ *Ready\\!* You can now receive your secret word\\.\n\n"
+            "Go back to the group and press *Join* or use `/join` to enter the game\\."
+        ),
+        "rivalidad_uso":           "⚠️ Usage: `/rivalidad @user1 @user2`",
+        "rivalidad_sin_datos":     "📊 No votes recorded between these players yet\\.",
+        "rivalidad_titulo":        "⚔️ *Rivalry*\n\n",
         "pistas_fallback":          "1. Think about its main characteristics\n2. Remember where or how it's used",
         "prompt_pistas":            (
             "Generate exactly 2 clues to describe '{palabra}' (category: {categoria}) "
@@ -1452,6 +1466,13 @@ def init_db():
             palabra     TEXT,
             UNIQUE(chat_key, palabra)
         );
+        CREATE TABLE IF NOT EXISTS votos_historial (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key    TEXT,
+            voter_id    INTEGER,
+            voted_id    INTEGER,
+            fecha       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     # Migración: agregar columnas nuevas si no existen (DBs antiguas)
@@ -1552,6 +1573,18 @@ def agregar_jugador_activo(chat_key, user_id, username):
             (chat_key, user_id, username)
         )
 
+def actualizar_nombre_activo(chat_key, user_id, username):
+    """Actualiza el nombre del jugador activo si cambió en Telegram."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE partida_jugadores SET username=? WHERE chat_key=? AND user_id=?",
+            (username, chat_key, user_id)
+        )
+        conn.execute(
+            "UPDATE jugadores SET username=? WHERE chat_key=? AND user_id=?",
+            (username, chat_key, user_id)
+        )
+
 def limpiar_jugadores_activos(chat_key):
     with get_conn() as conn:
         conn.execute("DELETE FROM partida_jugadores WHERE chat_key=?", (chat_key,))
@@ -1625,6 +1658,12 @@ def eliminar_de_vivos(chat_key, user_id):
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
+    chat = update.effective_chat
+    # En chat privado: mensaje de "listo, vuelve al grupo"
+    if chat.type == "private":
+        await update.message.reply_text(t(chat_key, "start_privado"), parse_mode="MarkdownV2")
+        return
+    # En grupo: mensaje normal de bienvenida
     await update.message.reply_text(t(chat_key, "start"), parse_mode="MarkdownV2")
 
 
@@ -2205,6 +2244,14 @@ async def resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, mes
         for v_from, v_to in votos.items()
     )
 
+    # Guardar votos en historial para estadísticas de rivalidad
+    with get_conn() as conn:
+        for v_from, v_to in votos.items():
+            conn.execute(
+                "INSERT INTO votos_historial (chat_key, voter_id, voted_id) VALUES (?,?,?)",
+                (chat_key, v_from, v_to)
+            )
+
     es_impostor = eliminado_id in impostor_ids_set
     etiqueta = t(chat_key, "era_impostor") if es_impostor else t(chat_key, "era_inocente")
 
@@ -2677,6 +2724,9 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if index >= len(orden) or user.id != orden[index]:
         return
+
+    # Actualizar nombre por si cambió en Telegram
+    actualizar_nombre_activo(chat_key, user.id, nombre(user))
 
     impostor_ids_raw = partida[5] or ""
     impostor_ids_set = set(int(i) for i in impostor_ids_raw.split(",") if i.strip())
@@ -3486,6 +3536,85 @@ async def cmd_roles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_rivalidad(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Muestra estadísticas de votos mutuos entre dos jugadores."""
+    chat_key = get_chat_key(update)
+
+    # Necesita menciones a 2 usuarios
+    if not update.message.entities:
+        await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
+        return
+
+    menciones = [e for e in update.message.entities if e.type == "mention" or e.type == "text_mention"]
+    if len(menciones) < 2:
+        await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
+        return
+
+    # Extraer user_ids de las menciones
+    user_ids = []
+    user_names = []
+    for m in menciones[:2]:
+        if m.type == "text_mention" and m.user:
+            user_ids.append(m.user.id)
+            user_names.append(m.user.first_name)
+        elif m.type == "mention":
+            username = update.message.text[m.offset+1:m.offset+m.length]
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
+                    (chat_key, username)
+                ).fetchone()
+            if row:
+                user_ids.append(row[0])
+                user_names.append(row[1])
+            else:
+                await update.message.reply_text(
+                    esc(f"⚠️ No encontré a @{username} en este grupo."),
+                    parse_mode="MarkdownV2"
+                )
+                return
+
+    if len(user_ids) < 2:
+        await update.message.reply_text(t(chat_key, "rivalidad_uso"), parse_mode="MarkdownV2")
+        return
+
+    id_a, id_b = user_ids[0], user_ids[1]
+    name_a, name_b = user_names[0], user_names[1]
+
+    with get_conn() as conn:
+        # A votó a B
+        a_a_b = conn.execute(
+            "SELECT COUNT(*) FROM votos_historial WHERE chat_key=? AND voter_id=? AND voted_id=?",
+            (chat_key, id_a, id_b)
+        ).fetchone()[0]
+        # B votó a A
+        a_b_a = conn.execute(
+            "SELECT COUNT(*) FROM votos_historial WHERE chat_key=? AND voter_id=? AND voted_id=?",
+            (chat_key, id_b, id_a)
+        ).fetchone()[0]
+
+    if a_a_b == 0 and a_b_a == 0:
+        await update.message.reply_text(t(chat_key, "rivalidad_sin_datos"), parse_mode="MarkdownV2")
+        return
+
+    lang = get_idioma(chat_key)
+    flecha = "→"
+    palabra_veces = "veces" if lang == "es" else "times"
+    msg = (
+        t(chat_key, "rivalidad_titulo") +
+        f"*{esc(name_a)}* {flecha} *{esc(name_b)}*: *{a_a_b}* {palabra_veces}\n"
+        f"*{esc(name_b)}* {flecha} *{esc(name_a)}*: *{a_b_a}* {palabra_veces}\n\n"
+    )
+    total = a_a_b + a_b_a
+    if total > 0:
+        pct_a = round(a_a_b / total * 100)
+        pct_b = 100 - pct_a
+        barra = "█" * (pct_a // 10) + "░" * (pct_b // 10)
+        msg += f"`{esc(name_a[:6]):<6} [{barra}] {esc(name_b[:6])}`"
+
+    await update.message.reply_text(msg, parse_mode="MarkdownV2")
+
+
 async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
@@ -3567,10 +3696,45 @@ async def set_commands(app):
 
     logger.info("✅ Comandos registrados en Telegram (grupos + privado, ES + EN).")
 
+async def _limpiar_partidas_zombies(app):
+    """Al arrancar, marca como terminadas las partidas que quedaron activas
+    tras un reinicio inesperado del bot. Notifica en el grupo."""
+    estados_activos = ("jugando", "adivinando", "iniciando")
+    with get_conn() as conn:
+        zombies = conn.execute(
+            "SELECT chat_key, chat_id FROM partidas WHERE estado IN ({})".format(
+                ",".join("?" * len(estados_activos))
+            ),
+            estados_activos
+        ).fetchall()
+        if zombies:
+            conn.execute(
+                "UPDATE partidas SET estado='terminada' WHERE estado IN ({})".format(
+                    ",".join("?" * len(estados_activos))
+                ),
+                estados_activos
+            )
+    for chat_key, chat_id in zombies:
+        try:
+            thread_id = get_thread_id(chat_key)
+            lang = get_idioma(chat_key)
+            if lang == "es":
+                msg = "⚠️ El bot se reinició y la partida en curso fue cancelada\\.\n\n_Usa /playimpostor para comenzar una nueva\\._"
+            else:
+                msg = "⚠️ The bot restarted and the active game was cancelled\\.\n\n_Use /playimpostor to start a new one\\._"
+            await app.bot.send_message(chat_id, msg,
+                                       parse_mode="MarkdownV2",
+                                       message_thread_id=thread_id)
+        except Exception as e:
+            logger.warning(f"[ZOMBIE] No se pudo notificar {chat_key}: {e}")
+    if zombies:
+        logger.info(f"[ZOMBIE] {len(zombies)} partidas zombie limpiadas")
+
+
 def main():
     init_db()
     _init_fonts()
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(_limpiar_partidas_zombies).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("playimpostor", cmd_nueva))
@@ -3582,6 +3746,7 @@ def main():
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
     app.add_handler(CommandHandler("resetroles",    cmd_resetroles))
     app.add_handler(CommandHandler("language",        cmd_idioma))
+    app.add_handler(CommandHandler("rivalidad",          cmd_rivalidad))
     app.add_handler(CommandHandler("all",               cmd_all))
     app.add_handler(CommandHandler("roles",             cmd_roles))
     app.add_handler(CommandHandler("addword",           cmd_addword))
