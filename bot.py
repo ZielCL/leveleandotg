@@ -491,6 +491,8 @@ TEXTOS = {
         "no_tu_turno":              "⚠️ No es tu turno.",
         "pista_confirmada":         "✅ ¡Pista confirmada!",
         "pista_auto_confirmada":    "⚠️ Tercer intento — pista enviada automáticamente\\.",
+        "aviso_30s":                "⏱️ ¡Quedan *30 segundos* para tu pista\\! [{nombre}](tg://user?id={uid})",
+        "aviso_15s":                "⏱️ ¡Quedan *15 segundos* para adivinar\\! [{nombre}](tg://user?id={uid})",
         "segunda_ronda":            "🔄 *¡Segunda ronda de pistas\\!*\n\nAhora sí, después de esta ronda se abrirá la votación\\.\n\n*🎲 Nuevo orden:*\n{orden}",
         "todos_dieron_pista":       "✅ *¡Todos dieron su pista\\!*\n\nEl creador puede abrir la votación 🗳️",
         "nueva_ronda_pistas":       "🔄 *¡Nueva ronda de pistas\\!*\n\n👥 Jugadores vivos: *{n}*\n\n*🎲 Nuevo orden de pistas:*\n{orden}\n\nCada uno da *una pista* sobre la palabra\\.\nCuando terminen, el creador abre la votación 🗳️",
@@ -674,6 +676,8 @@ TEXTOS = {
         "no_tu_turno":              "⚠️ It's not your turn.",
         "pista_confirmada":         "✅ Clue confirmed!",
         "pista_auto_confirmada":    "⚠️ Third attempt — clue sent automatically\\.",
+        "aviso_30s":                "⏱️ *30 seconds* left for your clue\\! [{nombre}](tg://user?id={uid})",
+        "aviso_15s":                "⏱️ *15 seconds* left to guess\\! [{nombre}](tg://user?id={uid})",
         "segunda_ronda":            "🔄 *Second clue round\\!*\n\nAfter this round, voting will open\\.\n\n*🎲 New order:*\n{orden}",
         "todos_dieron_pista":       "✅ *Everyone gave their clue\\!*\n\nThe creator can open voting 🗳️",
         "nueva_ronda_pistas":       "🔄 *New clue round\\!*\n\n👥 Alive players: *{n}*\n\n*🎲 New clue order:*\n{orden}\n\nEach player gives *one clue* about the word\\.\nWhen done, the creator opens voting 🗳️",
@@ -2266,7 +2270,22 @@ TIMER_ADIV_SEGUNDOS = 30
 
 async def _timer_adivinanza(chat_key, impostor_id, chat_id, thread_id, ctx):
     """Si el impostor no adivina en 30s, el grupo gana automáticamente."""
-    await asyncio.sleep(TIMER_ADIV_SEGUNDOS)
+    # Aviso a mitad de tiempo (15s)
+    await asyncio.sleep(TIMER_ADIV_SEGUNDOS // 2)
+    try:
+        datos = ctx.bot_data.get(f"adivinando_{chat_key}")
+        if datos and datos.get("impostor_id") == impostor_id:
+            nombre_j = next((j[1] for j in datos.get("jugadores", []) if j[0] == impostor_id), "?")
+            await ctx.bot.send_message(
+                chat_id,
+                t(chat_key, "aviso_15s").format(nombre=esc_link(nombre_j), uid=impostor_id),
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
+            )
+    except Exception:
+        pass
+    # Esperar los 15s restantes
+    await asyncio.sleep(TIMER_ADIV_SEGUNDOS // 2)
     try:
         await _timer_adivinanza_body(chat_key, impostor_id, chat_id, thread_id, ctx)
     except Exception as e:
@@ -2349,7 +2368,23 @@ TIMER_TURNO_SEGUNDOS = 60
 
 async def _timer_turno(chat_key, user_id, chat_id, thread_id, ctx):
     """Callback que se ejecuta cuando expira el tiempo de turno."""
-    await asyncio.sleep(TIMER_TURNO_SEGUNDOS)
+    # Aviso a mitad de tiempo (30s)
+    await asyncio.sleep(TIMER_TURNO_SEGUNDOS // 2)
+    try:
+        turno_data = ctx.bot_data.get(f"turno_{chat_key}")
+        if turno_data and turno_data.get("index") < len(turno_data.get("orden", [])):
+            if turno_data["orden"][turno_data["index"]] == user_id:
+                nombre_j = next((j[1] for j in get_jugadores_activos(chat_key) if j[0] == user_id), "?")
+                await ctx.bot.send_message(
+                    chat_id,
+                    t(chat_key, "aviso_30s").format(nombre=esc_link(nombre_j), uid=user_id),
+                    parse_mode="MarkdownV2",
+                    message_thread_id=thread_id
+                )
+    except Exception:
+        pass
+    # Esperar los 30s restantes
+    await asyncio.sleep(TIMER_TURNO_SEGUNDOS // 2)
     try:
         await _timer_turno_body(chat_key, user_id, chat_id, thread_id, ctx)
     except Exception as e:
