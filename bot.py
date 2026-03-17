@@ -1713,7 +1713,21 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await _unirse(get_chat_key(update), update.effective_user, update.message.reply_text, ctx.bot)
+    chat_key = get_chat_key(update)
+    user = update.effective_user
+
+    # Verificar que el bot esté iniciado (igual que btn_unirse)
+    try:
+        await ctx.bot.send_chat_action(user.id, "typing")
+    except Exception:
+        bot_username = (await ctx.bot.get_me()).username
+        deep_link = "https://t.me/" + bot_username + "?start=join"
+        await update.message.reply_text(
+            t(chat_key, "bot_no_iniciado") + "\n\n👉 " + deep_link
+        )
+        return
+
+    await _unirse(chat_key, user, update.message.reply_text, ctx.bot)
 
 async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
