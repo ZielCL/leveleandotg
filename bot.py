@@ -3598,19 +3598,24 @@ async def cmd_rivalidad(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     lang = get_idioma(chat_key)
-    flecha = "→"
     palabra_veces = "veces" if lang == "es" else "times"
-    msg = (
-        t(chat_key, "rivalidad_titulo") +
-        f"*{esc(name_a)}* {flecha} *{esc(name_b)}*: *{a_a_b}* {palabra_veces}\n"
-        f"*{esc(name_b)}* {flecha} *{esc(name_a)}*: *{a_b_a}* {palabra_veces}\n\n"
-    )
+    titulo = t(chat_key, "rivalidad_titulo")
+
+    # Barra visual proporcional (10 bloques total)
     total = a_a_b + a_b_a
-    if total > 0:
-        pct_a = round(a_a_b / total * 100)
-        pct_b = 100 - pct_a
-        barra = "█" * (pct_a // 10) + "░" * (pct_b // 10)
-        msg += f"`{esc(name_a[:6]):<6} [{barra}] {esc(name_b[:6])}`"
+    bloques_a = round(a_a_b / total * 10) if total > 0 else 0
+    bloques_b = 10 - bloques_a
+    barra = "🟦" * bloques_a + "🟥" * bloques_b
+
+    na = esc(name_a[:10])
+    nb = esc(name_b[:10])
+
+    msg = (
+        titulo +
+        f"🟦 *{na}* → *{nb}*: *{a_a_b}* {palabra_veces}\n"
+        f"🟥 *{nb}* → *{na}*: *{a_b_a}* {palabra_veces}\n\n"
+        f"{barra}"
+    )
 
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
