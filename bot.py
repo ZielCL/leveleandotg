@@ -4675,7 +4675,8 @@ async def _limpiar_partidas_zombies(app):
         ).fetchall()
     now_gi = int(datetime.now(_tz.utc).timestamp())
     for gp in gi_pendientes_prog:
-        if gp[6] <= now_gi:
+        # gi_programacion: id(0) idol_name(1) file_id(2) file_id_reveal(3) hint1(4) hint2(5) hint3(6) inicio_ts(7) fin_ts(8) tz_offset(9) estado(10)
+        if gp[7] <= now_gi:
             with get_conn() as conn:
                 conn.execute("UPDATE gi_programacion SET estado='activa' WHERE id=?", (gp[0],))
             asyncio.create_task(_gi_countdown(gp[0], app.bot, app.bot_data))
