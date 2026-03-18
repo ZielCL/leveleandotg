@@ -3526,10 +3526,16 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         return
                     lang_gi2 = get_idioma(chat_key)
                     ctx.bot_data[f"gi_intento_{chat_key}_{user.id}"] = texto
-                    kbd_gi2 = [[InlineKeyboardButton(
-                        gi_t(lang_gi2, "gi_confirmar_btn"),
-                        callback_data=f"gi:confirmar:{user.id}:{gi_ronda_id}"
-                    )]]
+                    kbd_gi2 = [
+                        [InlineKeyboardButton(
+                            gi_t(lang_gi2, "gi_confirmar_btn"),
+                            callback_data=f"gi:confirmar:{user.id}:{gi_ronda_id}"
+                        )],
+                        [InlineKeyboardButton(
+                            gi_t(lang_gi2, "gi_btn_salir"),
+                            callback_data="gi:salir"
+                        )],
+                    ]
                     await update.message.reply_text(
                         gi_t(lang_gi2, "gi_confirmar_msg").format(respuesta=esc(texto)),
                         parse_mode="MarkdownV2",
@@ -5395,7 +5401,16 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if action == "gi:participar":
         participante = gi_get_participante(ronda_id, user.id)
         if participante:
-            await query.answer(gi_t(lang, "gi_ya_participa"), show_alert=True)
+            if participante[6]:  # ya activo
+                await query.answer(gi_t(lang, "gi_ya_participa"), show_alert=True)
+                return
+            # Existía pero salió → reactivar conservando las vidas que tenía
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE gi_participantes SET activo=1, username=? WHERE ronda_id=? AND user_id=?",
+                    (nombre(user), ronda_id, user.id)
+                )
+            await query.answer(gi_t(lang, "gi_unido"), show_alert=True)
             return
         gi_upsert_participante(ronda_id, chat_key, user.id, nombre(user))
         await query.answer(gi_t(lang, "gi_unido"), show_alert=True)
