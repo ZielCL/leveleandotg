@@ -1890,24 +1890,22 @@ async def _task_programa_countdown(chat_key: str, prog_id: int, bot, bot_data: d
                 await _iniciar_partida_programada(
                     chat_key, chat_id, thread_id, puntos, tz_offset, mensaje_id, bot, bot_data
                 )
-                bot_data.pop(f"programa_tarea_{chat_key}", None)
+                bot_data.pop(f"programa_tarea_{prog_id}", None)
                 return
 
             if mensaje_id:
                 try:
                     lang       = get_idioma(chat_key)
                     cancel_btn = "❌ Cancelar partida" if lang == "es" else "❌ Cancel game"
-                    kbd        = [[InlineKeyboardButton(cancel_btn, callback_data="programa:cancelar_prog")]]
+                    kbd        = [[InlineKeyboardButton(cancel_btn, callback_data=f"programa:cancelar_prog:{prog_id}")]]
                     texto      = _build_countdown_text(chat_key, hora_ts, puntos, tz_offset, restantes)
 
                     if restantes <= 300:
-                        # Últimos 5 min: solo editar (no mover para no spamear)
                         await bot.edit_message_text(
                             texto, chat_id=chat_id, message_id=mensaje_id,
                             parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd)
                         )
                     else:
-                        # Actualización horaria: borrar el anterior y publicar nuevo
                         try:
                             await bot.delete_message(chat_id=chat_id, message_id=mensaje_id)
                         except Exception:
@@ -1927,12 +1925,17 @@ async def _task_programa_countdown(chat_key: str, prog_id: int, bot, bot_data: d
                 except Exception as e:
                     logger.warning(f"[PROGRAMA] Error actualizando countdown {chat_key}: {e}")
 
-            await asyncio.sleep(60 if restantes <= 300 else 3600)
+            # Dormir el tiempo justo: despertarse 60s antes de la hora
+            if restantes <= 300:
+                await asyncio.sleep(60)
+            else:
+                await asyncio.sleep(min(3600, restantes - 60))
 
     except asyncio.CancelledError:
-        logger.info(f"[PROGRAMA] Countdown cancelado {chat_key}")
+        logger.info(f"[PROGRAMA] Countdown {prog_id} cancelado")
     except Exception as e:
         logger.error(f"[PROGRAMA] Error en countdown {chat_key}: {e}", exc_info=True)
+
 
 async def _iniciar_partida_programada(chat_key: str, chat_id: int, thread_id,
                                        puntos: int, tz_offset: int, mensaje_id,
@@ -2213,10 +2216,20 @@ async def btn_programa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not es_owner and not es_admin:
             await query.answer("⚠️ Solo admins pueden cancelar.", show_alert=True)
             return
-        tarea = ctx.bot_data.pop(f"programa_tarea_{chat_key}", None)
-        if tarea:
-            tarea.cancel()
-        cancelar_programas_db(chat_key)
+        cb_parts = query.data.split(":")
+        if len(cb_parts) >= 3:
+            try:
+                prog_id_c = int(cb_parts[2])
+                t_c = ctx.bot_data.pop(f"programa_tarea_{prog_id_c}", None)
+                if t_c: t_c.cancel()
+                with get_conn() as conn:
+                    conn.execute("UPDATE programacion SET estado='cancelada' WHERE id=?", (prog_id_c,))
+            except (ValueError, IndexError):
+                cancelar_programas_db(chat_key)
+        else:
+            tarea_old = ctx.bot_data.pop(f"programa_tarea_{chat_key}", None)
+            if tarea_old: tarea_old.cancel()
+            cancelar_programas_db(chat_key)
         await query.answer()
         cancel_txt = "❌ *Partida programada cancelada\\.*" if lang == "es" else "❌ *Scheduled game cancelled\\.*"
         try:
@@ -2264,10 +2277,6 @@ async def btn_programa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                    if lang == "es" else "⚠️ You must set the start time first.")
             await query.answer(err, show_alert=True)
             return
-        tarea_prev = ctx.bot_data.pop(f"programa_tarea_{chat_key}", None)
-        if tarea_prev:
-            tarea_prev.cancel()
-        cancelar_programas_db(chat_key)
         chat_id   = update.effective_chat.id
         thread_id = get_thread_id(chat_key)
         hora_ts   = setup["hora_inicio"]
@@ -2289,7 +2298,7 @@ async def btn_programa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         restantes = max(0, hora_ts - now_ts)
         texto_cd  = _build_countdown_text(chat_key, hora_ts, puntos, tz, restantes)
         cancel_btn = "❌ Cancelar partida" if lang == "es" else "❌ Cancel game"
-        kbd_cd     = [[InlineKeyboardButton(cancel_btn, callback_data="programa:cancelar_prog")]]
+        kbd_cd     = [[InlineKeyboardButton(cancel_btn, callback_data=f"programa:cancelar_prog:{prog_id}")]]
         msg_cd = await ctx.bot.send_message(
             chat_id, texto_cd, parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup(kbd_cd), message_thread_id=thread_id
@@ -2299,7 +2308,7 @@ async def btn_programa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         tarea = asyncio.create_task(
             _task_programa_countdown(chat_key, prog_id, ctx.bot, ctx.bot_data)
         )
-        ctx.bot_data[f"programa_tarea_{chat_key}"] = tarea
+        ctx.bot_data[f"programa_tarea_{prog_id}"] = tarea
         ctx.bot_data.pop(f"programa_setup_{chat_key}", None)
         return
 
@@ -4648,7 +4657,7 @@ async def _limpiar_partidas_zombies(app):
             tarea = asyncio.create_task(
                 _task_programa_countdown(chat_key_, prog_id, app.bot, app.bot_data)
             )
-            app.bot_data[f"programa_tarea_{chat_key_}"] = tarea
+            app.bot_data[f"programa_tarea_{prog_id}"] = tarea
             logger.info(f"[PROGRAMA] Countdown restaurado {chat_key_} ({len(pendientes)} programas)")
 
         # ── Restaurar rondas activas de GI (relanzar tareas sin cerrarlas) ──
@@ -5079,7 +5088,13 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
             (int(inicio_ts + duracion * 0.75), 1,  "gi_hint3_reveal", "hint3"),
         ]
 
+        pistas_ya_dadas = ronda_init[13]  # pistas dadas antes de este arranque
+
         for idx, (hint_ts, nuevos_puntos, hint_key, hint_field) in enumerate(hint_schedule):
+            # Saltar pistas que ya fueron publicadas antes del último reinicio
+            if idx < pistas_ya_dadas:
+                continue
+
             wait = hint_ts - int(datetime.now(_tz.utc).timestamp())
             if wait > 0:
                 await asyncio.sleep(wait)
