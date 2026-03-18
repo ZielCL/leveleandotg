@@ -4243,9 +4243,10 @@ async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     busqueda = " ".join(ctx.args).strip().lstrip("@")
 
-    # Buscar primero por text_mention en las entidades del mensaje
     target_id   = None
     target_name = None
+
+    # 1. text_mention: mención de usuario sin @username (ej. nombre clicable)
     if update.message.entities:
         for e in update.message.entities:
             if e.type == "text_mention" and e.user:
@@ -4253,13 +4254,26 @@ async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 target_name = e.user.first_name
                 break
 
-    # Si no hay mención directa, buscar en DB por username o nombre
+    # 2. @username normal → buscar en DB por username de Telegram
     if target_id is None:
         with get_conn() as conn:
+            # Buscar por Telegram @username (campo username puede ser first_name o @user)
             row = conn.execute(
                 "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
                 (chat_key, busqueda)
             ).fetchone()
+            # Si no encontró, buscar en partida_jugadores también
+            if not row:
+                row = conn.execute(
+                    "SELECT user_id, username FROM partida_jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
+                    (chat_key, busqueda)
+                ).fetchone()
+            # Búsqueda parcial como último recurso
+            if not row:
+                row = conn.execute(
+                    "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username) LIKE LOWER(?)",
+                    (chat_key, f"%{busqueda}%")
+                ).fetchone()
         if row:
             target_id, target_name = row[0], row[1]
 
