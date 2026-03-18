@@ -1910,21 +1910,88 @@ async def _iniciar_partida_programada(chat_key: str, chat_id: int, thread_id,
         )
         btn_txt = "✋ Join the game"
     keyboard = [[InlineKeyboardButton(btn_txt, callback_data="unirse")]]
+    lobby_msg_id = None
     if mensaje_id:
         try:
-            await bot.edit_message_text(
+            msg = await bot.edit_message_text(
                 texto, chat_id=chat_id, message_id=mensaje_id,
                 parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            lobby_msg_id = mensaje_id
         except Exception:
-            await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
+            sent = await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
                                    reply_markup=InlineKeyboardMarkup(keyboard),
                                    message_thread_id=thread_id)
+            lobby_msg_id = sent.message_id
     else:
-        await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
+        sent = await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
                                reply_markup=InlineKeyboardMarkup(keyboard),
                                message_thread_id=thread_id)
+        lobby_msg_id = sent.message_id
+
+    # Lanzar timeout de 2 minutos para cancelar si nadie inicia
+    tarea = asyncio.create_task(
+        _timeout_lobby_programado(chat_key, chat_id, thread_id, lobby_msg_id, bot, bot_data)
+    )
+    bot_data[f"timeout_lobby_{chat_key}"] = tarea
     logger.info(f"[PROGRAMA] Partida programada iniciada en {chat_key}")
+
+
+TIMEOUT_LOBBY_SEGUNDOS = 120  # 2 minutos
+
+async def _timeout_lobby_programado(chat_key: str, chat_id: int, thread_id,
+                                     mensaje_id, bot, bot_data: dict):
+    """Cancela el lobby automáticamente si nadie lo inicia en 2 minutos."""
+    try:
+        await asyncio.sleep(TIMEOUT_LOBBY_SEGUNDOS)
+
+        partida = get_partida(chat_key)
+        if not partida or partida[2] != "esperando":
+            return  # Ya se inició o canceló por otro medio
+
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE partidas SET estado='terminada' WHERE chat_key=? AND estado='esperando'",
+                (chat_key,)
+            )
+        bot_data.pop(f"multiplicador_{chat_key}", None)
+
+        lang = get_idioma(chat_key)
+        if lang == "es":
+            texto_exp = (
+                "⏰ *Partida expirada*\n\n"
+                "Nadie inició la partida programada en 2 minutos\\. "
+                "Fue cancelada automáticamente\\."
+            )
+        else:
+            texto_exp = (
+                "⏰ *Game expired*\n\n"
+                "Nobody started the scheduled game within 2 minutes\\. "
+                "It was automatically cancelled\\."
+            )
+
+        if mensaje_id:
+            try:
+                await bot.edit_message_text(
+                    texto_exp, chat_id=chat_id, message_id=mensaje_id,
+                    parse_mode="MarkdownV2"
+                )
+            except Exception:
+                await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
+                                       message_thread_id=thread_id)
+        else:
+            await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
+                                   message_thread_id=thread_id)
+
+        logger.info(f"[PROGRAMA] Lobby expirado por inactividad en {chat_key}")
+
+    except asyncio.CancelledError:
+        pass  # Se inició la partida a tiempo
+    except Exception as e:
+        logger.error(f"[PROGRAMA] Error en timeout lobby {chat_key}: {e}", exc_info=True)
+
+
+
 
 
 async def cmd_program(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2156,6 +2223,11 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(chat_key, "partida_activa"))
         return
 
+    # Cancelar timeout anterior si existía
+    tarea_anterior = ctx.bot_data.pop(f"timeout_lobby_{chat_key}", None)
+    if tarea_anterior:
+        tarea_anterior.cancel()
+
     limpiar_jugadores_activos(chat_key)
 
     with get_conn() as conn:
@@ -2168,11 +2240,18 @@ async def cmd_nueva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     agregar_jugador_activo(chat_key, user.id, nombre(user))
 
     keyboard = [[InlineKeyboardButton(t(chat_key, "btn_unirse"), callback_data="unirse")]]
-    await update.message.reply_text(
+    msg = await update.message.reply_text(
         t(chat_key, "nueva_partida").format(nombre=esc(nombre(user))),
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+    # Lanzar timeout de 2 minutos
+    thread_id = get_thread_id(chat_key)
+    tarea = asyncio.create_task(
+        _timeout_lobby_programado(chat_key, chat_id, thread_id, msg.message_id, ctx.bot, ctx.bot_data)
+    )
+    ctx.bot_data[f"timeout_lobby_{chat_key}"] = tarea
 
 
 async def cmd_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2304,7 +2383,7 @@ async def btn_cancelar_lobby(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # Cancelar timers y limpiar estado
-    for key in [f"timer_{chat_key}", f"timer_adiv_{chat_key}"]:
+    for key in [f"timer_{chat_key}", f"timer_adiv_{chat_key}", f"timeout_lobby_{chat_key}"]:
         t_obj = ctx.bot_data.pop(key, None)
         if t_obj: t_obj.cancel()
     for key in [f"turno_{chat_key}", f"adivinando_{chat_key}",
@@ -2357,6 +2436,10 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer()
+    # Cancelar el timeout de lobby si venía de una partida programada
+    tarea_timeout = ctx.bot_data.pop(f"timeout_lobby_{chat_key}", None)
+    if tarea_timeout:
+        tarea_timeout.cancel()
     categorias = cats(chat_key)
     keyboard = [
         [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
@@ -3936,6 +4019,9 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
     if tarea_adiv:
         tarea_adiv.cancel()
+    tarea_lobby = ctx.bot_data.pop(f"timeout_lobby_{chat_key}", None)
+    if tarea_lobby:
+        tarea_lobby.cancel()
     ctx.bot_data.pop(f"turno_{chat_key}", None)
     ctx.bot_data.pop(f"adivinando_{chat_key}", None)
     ctx.bot_data.pop(f"votos_{chat_key}", None)
