@@ -3517,7 +3517,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         partida_imp_gi  = get_partida(chat_key)
         imp_activo_gi   = partida_imp_gi and partida_imp_gi[2] in ("jugando", "adivinando")
         if not imp_activo_gi:
-            gi_ronda_activa = gi_get_ronda_activa(chat_key)
+            gi_ronda_activa = gi_get_ronda_activa(chat_key, update.effective_chat.id)
             if gi_ronda_activa:
                 gi_ronda_id   = gi_ronda_activa[0]
                 gi_part_check = gi_get_participante(gi_ronda_id, user.id)
@@ -4651,22 +4651,20 @@ async def _limpiar_partidas_zombies(app):
             app.bot_data[f"programa_tarea_{chat_key_}"] = tarea
             logger.info(f"[PROGRAMA] Countdown restaurado {chat_key_} ({len(pendientes)} programas)")
 
-    # ── Limpiar rondas activas de GI (estado perdido al reiniciar) ──
+        # ── Restaurar rondas activas de GI (relanzar tareas sin cerrarlas) ──
     with get_conn() as conn:
         gi_rondas_activas = conn.execute(
             "SELECT id, chat_key, chat_id FROM gi_rondas WHERE estado='activa'"
         ).fetchall()
-        if gi_rondas_activas:
-            conn.execute("UPDATE gi_rondas SET estado='terminada' WHERE estado='activa'")
     for r in gi_rondas_activas:
         try:
-            lang_r = get_idioma(r[1])
-            msg_r  = ("⚠️ La ronda de *Adivina la Idol* fue cancelada por reinicio del bot\\."
-                      if lang_r == "es" else
-                      "⚠️ The *Guess the Idol* round was cancelled due to bot restart\\.")
-            await app.bot.send_message(r[2], msg_r, parse_mode="MarkdownV2")
-        except Exception:
-            pass
+            tarea_gi_r = asyncio.create_task(
+                _gi_ronda_task(r[1], r[0], app.bot, app.bot_data)
+            )
+            app.bot_data[f"gi_ronda_{r[1]}"] = tarea_gi_r
+            logger.info(f"[IDOL] Ronda {r[0]} restaurada en {r[1]}")
+        except Exception as e:
+            logger.warning(f"[IDOL] No se pudo restaurar ronda {r[0]}: {e}")
 
     # ── Restaurar countdowns de GI pendientes ──
     with get_conn() as conn:
@@ -4800,12 +4798,20 @@ def gi_get_grupos() -> list:
             "SELECT chat_id, chat_title, chat_key FROM gi_grupos ORDER BY ultimo_msg DESC"
         ).fetchall()
 
-def gi_get_ronda_activa(chat_key: str):
+def gi_get_ronda_activa(chat_key: str, chat_id: int = None):
     with get_conn() as conn:
-        return conn.execute(
+        row = conn.execute(
             "SELECT * FROM gi_rondas WHERE chat_key=? AND estado='activa' ORDER BY id DESC LIMIT 1",
             (chat_key,)
         ).fetchone()
+        if row:
+            return row
+        if chat_id is not None:
+            row = conn.execute(
+                "SELECT * FROM gi_rondas WHERE chat_id=? AND estado='activa' ORDER BY id DESC LIMIT 1",
+                (chat_id,)
+            ).fetchone()
+        return row
 
 def gi_get_participante(ronda_id: int, user_id: int):
     with get_conn() as conn:
@@ -5468,11 +5474,13 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lang     = get_idioma(chat_key)
     action   = query.data   # "gi:participar" or "gi:salir"
 
-    ronda = gi_get_ronda_activa(chat_key)
+    chat_id_gi = update.effective_chat.id if update.effective_chat else None
+    ronda = gi_get_ronda_activa(chat_key, chat_id_gi)
     if not ronda:
         await query.answer(gi_t(lang, "gi_no_ronda").replace("\\.", ".").replace("\\", ""), show_alert=True)
         return
 
+    chat_key = ronda[2]  # usar chat_key real de la ronda
     ronda_id = ronda[0]
 
     if action == "gi:participar":
