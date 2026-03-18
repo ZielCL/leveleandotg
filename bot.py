@@ -5244,6 +5244,74 @@ async def gi_cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ── Callbacks GI ──────────────────────────────────────────────
 
+async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Cancela una programación GI pendiente por ID."""
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("⚠️ Solo el owner puede cancelar.", show_alert=True)
+        return
+
+    prog_id = int(query.data.split(":")[2])
+
+    with get_conn() as conn:
+        prog = conn.execute(
+            "SELECT idol_name, estado FROM gi_programacion WHERE id=?", (prog_id,)
+        ).fetchone()
+
+    if not prog or prog[1] != 'pendiente':
+        await query.answer("Esta programación ya no está pendiente.", show_alert=True)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Cancelar tarea de countdown si existe
+    tarea = ctx.bot_data.pop(f"gi_countdown_{prog_id}", None)
+    if tarea:
+        tarea.cancel()
+
+    with get_conn() as conn:
+        conn.execute("UPDATE gi_programacion SET estado='cancelada' WHERE id=?", (prog_id,))
+
+    await query.answer(f"✅ Cancelado: {prog[0]}", show_alert=True)
+
+    # Actualizar el mensaje: quitar el botón de la programación cancelada
+    with get_conn() as conn:
+        pendientes = conn.execute(
+            "SELECT id, idol_name, inicio_ts, fin_ts, tz_offset FROM gi_programacion WHERE estado='pendiente' ORDER BY inicio_ts"
+        ).fetchall()
+
+    if not pendientes:
+        try:
+            await query.message.edit_text("✅ Todas las programaciones canceladas\\.", parse_mode="MarkdownV2")
+        except Exception:
+            pass
+        return
+
+    lineas = []
+    keyboard = []
+    for p in pendientes:
+        pid, idol, ini_ts, fin_ts, tz = p
+        ini_str = _formato_hora_local(ini_ts, tz or 0)
+        fin_str = _formato_hora_local(fin_ts, tz or 0)
+        lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
+        keyboard.append([InlineKeyboardButton(
+            f"❌ Cancelar: {idol}",
+            callback_data=f"gi:cancelarprog:{pid}"
+        )])
+
+    texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
+    try:
+        await query.message.edit_text(
+            texto, parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception:
+        pass
+
+
 async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user  = query.from_user
@@ -5553,6 +5621,44 @@ async def gi_handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     setup["mensaje_id"] = msg.message_id
 
 
+async def gi_cmd_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Lista programaciones GI pendientes y permite cancelarlas (solo owner, privado)."""
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
+        return
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("⚠️ Usa este comando en chat privado con el bot.")
+        return
+
+    with get_conn() as conn:
+        pendientes = conn.execute(
+            "SELECT id, idol_name, inicio_ts, fin_ts, tz_offset FROM gi_programacion WHERE estado='pendiente' ORDER BY inicio_ts"
+        ).fetchall()
+
+    if not pendientes:
+        await update.message.reply_text("📭 No hay programaciones pendientes\\.", parse_mode="MarkdownV2")
+        return
+
+    lineas = []
+    keyboard = []
+    for prog in pendientes:
+        pid, idol, ini_ts, fin_ts, tz = prog
+        ini_str = _formato_hora_local(ini_ts, tz or 0)
+        fin_str = _formato_hora_local(fin_ts, tz or 0)
+        lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
+        keyboard.append([InlineKeyboardButton(
+            f"❌ Cancelar: {idol}",
+            callback_data=f"gi:cancelarprog:{pid}"
+        )])
+
+    texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
+    await update.message.reply_text(
+        texto, parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
 def main():
     init_db()
     _init_fonts()
@@ -5580,6 +5686,7 @@ def main():
     app.add_handler(CommandHandler("giscore",           gi_cmd_score))
     app.add_handler(CommandHandler("gireset",           gi_cmd_reset))
     app.add_handler(CommandHandler("gicancel",          gi_cmd_cancelar))
+    app.add_handler(CommandHandler("giprog",             gi_cmd_cancelar_prog))
 
     app.add_handler(CallbackQueryHandler(btn_cancelar_lobby,    pattern="^cancelar_lobby$"))
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
@@ -5591,6 +5698,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog, pattern="^gi:cancelarprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
