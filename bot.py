@@ -5009,7 +5009,7 @@ async def _gi_countdown(prog_id: int, bot, bot_data: dict):
             chat_key = grp[2]
             lang = get_idioma(chat_key)
             try:
-                caption  = gi_build_ronda_caption(chat_key, prog[7], 5, 0, hints, prog[8])
+                caption  = gi_build_ronda_caption(chat_key, prog[8], 5, 0, hints, prog[9])
                 keyboard = gi_build_ronda_keyboard(lang)
                 msg = await bot.send_photo(
                     chat_id,
