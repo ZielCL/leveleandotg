@@ -2257,17 +2257,22 @@ async def _unirse(chat_key, user, reply_fn, bot=None):
 
     # Botón unirse siempre presente (para que no se pierda en el chat)
     btn_unirse_row = [InlineKeyboardButton(t(chat_key, "btn_unirse"), callback_data="unirse")]
+    lang = get_idioma(chat_key)
+    btn_cancelar_row = [InlineKeyboardButton(
+        "❌ Cancelar partida" if lang == "es" else "❌ Cancel game",
+        callback_data="cancelar_lobby"
+    )]
 
     if len(activos) >= MAX_JUGADORES:
-        # Llena: solo mostrar unirse deshabilitado no es posible en TG, omitirlo
-        keyboard = []
+        keyboard = [btn_cancelar_row]
     elif len(activos) >= 3:
         keyboard = [
             btn_unirse_row,
             [InlineKeyboardButton(t(chat_key, "btn_iniciar"), callback_data="iniciar_partida")],
+            btn_cancelar_row,
         ]
     else:
-        keyboard = [btn_unirse_row]
+        keyboard = [btn_unirse_row, btn_cancelar_row]
 
     sufijo = (
         t(chat_key, "partida_llena").format(n=MAX_JUGADORES) if len(activos) >= MAX_JUGADORES
@@ -2279,6 +2284,45 @@ async def _unirse(chat_key, user, reply_fn, bot=None):
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
     )
+
+
+async def btn_cancelar_lobby(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Botón de cancelar en el post del lobby — solo funciona para el creador."""
+    query    = update.callback_query
+    chat_key = get_chat_key(update)
+    user     = query.from_user
+
+    partida = get_partida(chat_key)
+    if not partida or partida[2] == "terminada":
+        await query.answer()
+        return
+
+    if partida[8] != user.id:
+        lang = get_idioma(chat_key)
+        msg  = "⚠️ Solo el creador puede cancelar." if lang == "es" else "⚠️ Only the creator can cancel."
+        await query.answer(msg, show_alert=True)
+        return
+
+    # Cancelar timers y limpiar estado
+    for key in [f"timer_{chat_key}", f"timer_adiv_{chat_key}"]:
+        t_obj = ctx.bot_data.pop(key, None)
+        if t_obj: t_obj.cancel()
+    for key in [f"turno_{chat_key}", f"adivinando_{chat_key}",
+                f"votos_{chat_key}", f"revotacion_{chat_key}"]:
+        ctx.bot_data.pop(key, None)
+
+    with get_conn() as conn:
+        conn.execute("UPDATE partidas SET estado='terminada' WHERE chat_key=?", (chat_key,))
+
+    await query.answer()
+    lang = get_idioma(chat_key)
+    try:
+        await query.message.edit_text(
+            t(chat_key, "cancelado"),
+            parse_mode="MarkdownV2"
+        )
+    except Exception:
+        await query.message.reply_text(t(chat_key, "cancelado"), parse_mode="MarkdownV2")
 
 
 async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -4289,6 +4333,7 @@ def main():
     app.add_handler(CommandHandler("removeword",        cmd_removeword))
     app.add_handler(CommandHandler("words",             cmd_words))
 
+    app.add_handler(CallbackQueryHandler(btn_cancelar_lobby,    pattern="^cancelar_lobby$"))
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
     app.add_handler(CallbackQueryHandler(btn_iniciar_partida, pattern="^iniciar_partida$"))
     app.add_handler(CallbackQueryHandler(btn_categoria,       pattern="^cat:"))
