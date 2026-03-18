@@ -1486,6 +1486,64 @@ def init_db():
             mensaje_id      INTEGER,
             estado          TEXT DEFAULT 'pendiente'
         );
+        CREATE TABLE IF NOT EXISTS gi_grupos (
+            chat_id     INTEGER PRIMARY KEY,
+            chat_title  TEXT,
+            chat_key    TEXT,
+            ultimo_msg  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS gi_programacion (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            idol_name       TEXT,
+            file_id         TEXT,
+            file_id_reveal  TEXT,
+            hint1           TEXT,
+            hint2           TEXT,
+            hint3           TEXT,
+            inicio_ts       INTEGER,
+            fin_ts          INTEGER,
+            tz_offset       INTEGER DEFAULT 0,
+            estado          TEXT DEFAULT 'pendiente'
+        );
+        CREATE TABLE IF NOT EXISTS gi_rondas (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            prog_id         INTEGER,
+            chat_key        TEXT,
+            chat_id         INTEGER,
+            idol_name       TEXT,
+            file_id         TEXT,
+            file_id_reveal  TEXT,
+            hint1           TEXT,
+            hint2           TEXT,
+            hint3           TEXT,
+            inicio_ts       INTEGER,
+            fin_ts          INTEGER,
+            estado          TEXT DEFAULT 'activa',
+            pistas_dadas    INTEGER DEFAULT 0,
+            puntos_actuales INTEGER DEFAULT 5,
+            ganador_id      INTEGER,
+            ganador_nombre  TEXT,
+            mensaje_id      INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS gi_participantes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ronda_id    INTEGER,
+            chat_key    TEXT,
+            user_id     INTEGER,
+            username    TEXT,
+            vidas       INTEGER DEFAULT 5,
+            activo      INTEGER DEFAULT 1,
+            UNIQUE(ronda_id, user_id)
+        );
+        CREATE TABLE IF NOT EXISTS gi_marcador (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key    TEXT,
+            user_id     INTEGER,
+            username    TEXT,
+            puntos      INTEGER DEFAULT 0,
+            victorias   INTEGER DEFAULT 0,
+            UNIQUE(chat_key, user_id)
+        );
     """)
     conn.commit()
     # Migración: agregar columnas nuevas si no existen (DBs antiguas)
@@ -3368,6 +3426,55 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     texto = update.message.text.strip()
 
+    # ── Registrar grupo para Adivina la Idol ───────────────────
+    chat = update.effective_chat
+    if chat and chat.type in ("group", "supergroup"):
+        gi_registrar_grupo(chat.id, chat.title or "?", chat_key)
+
+    # ── Captura de texto para /idol setup (solo owner en privado) ──
+    if chat and chat.type == "private" and user.id == BOT_OWNER_ID:
+        gi_setup_priv = ctx.bot_data.get(f"gi_setup_{user.id}")
+        if gi_setup_priv and gi_setup_priv.get("esperando") and gi_setup_priv["esperando"] != "imagen":
+            campo_gi = gi_setup_priv["esperando"]
+            lang_gi  = gi_setup_priv.get("lang", "es")
+            gi_setup_priv["esperando"] = None
+            import re as _re_gi
+            if campo_gi in ("inicio", "fin"):
+                if _re_gi.match(r"^\d{1,2}:\d{2}$", texto):
+                    tz_gi = gi_setup_priv.get("tz_offset", 0)
+                    ts_gi = _parse_hora(texto, tz_gi)
+                    if ts_gi:
+                        gi_setup_priv[f"{campo_gi}_ts"] = ts_gi
+                    else:
+                        await update.message.reply_text("⚠️ Hora inválida. Usa HH:MM")
+                        return
+                else:
+                    await update.message.reply_text("⚠️ Formato inválido. Usa HH:MM (ej: 20:00)")
+                    return
+            else:
+                gi_setup_priv[campo_gi] = texto
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            msg_id_gi = gi_setup_priv.get("mensaje_id")
+            text_gi   = gi_build_setup_text(gi_setup_priv, lang_gi)
+            kbd_gi    = gi_build_setup_keyboard(gi_setup_priv, lang_gi)
+            if msg_id_gi:
+                try:
+                    await ctx.bot.edit_message_text(
+                        text_gi, chat_id=user.id, message_id=msg_id_gi,
+                        parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd_gi)
+                    )
+                    return
+                except Exception:
+                    pass
+            new_msg_gi = await update.message.reply_text(
+                text_gi, parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd_gi)
+            )
+            gi_setup_priv["mensaje_id"] = new_msg_gi.message_id
+            return
+
     # ── Captura de hora para /program ──────────────────────────
     setup = ctx.bot_data.get(f"programa_setup_{chat_key}")
     if setup and setup.get("esperando_hora") and user.id == setup.get("admin_id"):
@@ -3402,6 +3509,31 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         "⚠️ Invalid time\\. Use format `HH:MM` \\(eg: `20:00`\\)")
                 await update.message.reply_text(err, parse_mode="MarkdownV2")
                 return
+
+    # ── Adivina la Idol: captura respuestas de participantes ──
+    if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        partida_imp_gi  = get_partida(chat_key)
+        imp_activo_gi   = partida_imp_gi and partida_imp_gi[2] in ("jugando", "adivinando")
+        if not imp_activo_gi:
+            gi_ronda_activa = gi_get_ronda_activa(chat_key)
+            if gi_ronda_activa:
+                gi_ronda_id   = gi_ronda_activa[0]
+                gi_part_check = gi_get_participante(gi_ronda_id, user.id)
+                if gi_part_check and gi_part_check[6]:   # activo=1
+                    if gi_part_check[5] <= 0:            # sin vidas
+                        return
+                    lang_gi2 = get_idioma(chat_key)
+                    ctx.bot_data[f"gi_intento_{chat_key}_{user.id}"] = texto
+                    kbd_gi2 = [[InlineKeyboardButton(
+                        gi_t(lang_gi2, "gi_confirmar_btn"),
+                        callback_data=f"gi:confirmar:{user.id}:{gi_ronda_id}"
+                    )]]
+                    await update.message.reply_text(
+                        gi_t(lang_gi2, "gi_confirmar_msg").format(respuesta=esc(texto)),
+                        parse_mode="MarkdownV2",
+                        reply_markup=InlineKeyboardMarkup(kbd_gi2)
+                    )
+                    return
 
     partida = get_partida(chat_key)
     if not partida:
@@ -4511,6 +4643,898 @@ async def _limpiar_partidas_zombies(app):
             app.bot_data[f"programa_tarea_{chat_key_}"] = tarea
             logger.info(f"[PROGRAMA] Countdown restaurado {chat_key_} ({len(pendientes)} programas)")
 
+    # ── Limpiar rondas activas de GI (estado perdido al reiniciar) ──
+    with get_conn() as conn:
+        gi_rondas_activas = conn.execute(
+            "SELECT id, chat_key, chat_id FROM gi_rondas WHERE estado='activa'"
+        ).fetchall()
+        if gi_rondas_activas:
+            conn.execute("UPDATE gi_rondas SET estado='terminada' WHERE estado='activa'")
+    for r in gi_rondas_activas:
+        try:
+            lang_r = get_idioma(r[1])
+            msg_r  = ("⚠️ La ronda de *Adivina la Idol* fue cancelada por reinicio del bot\\."
+                      if lang_r == "es" else
+                      "⚠️ The *Guess the Idol* round was cancelled due to bot restart\\.")
+            await app.bot.send_message(r[2], msg_r, parse_mode="MarkdownV2")
+        except Exception:
+            pass
+
+    # ── Restaurar countdowns de GI pendientes ──
+    with get_conn() as conn:
+        gi_pendientes_prog = conn.execute(
+            "SELECT * FROM gi_programacion WHERE estado='pendiente'"
+        ).fetchall()
+    now_gi = int(datetime.now(_tz.utc).timestamp())
+    for gp in gi_pendientes_prog:
+        if gp[6] <= now_gi:
+            with get_conn() as conn:
+                conn.execute("UPDATE gi_programacion SET estado='activa' WHERE id=?", (gp[0],))
+            asyncio.create_task(_gi_countdown(gp[0], app.bot, app.bot_data))
+            logger.info(f"[IDOL] Countdown atrasado restaurado prog_id={gp[0]}")
+        else:
+            tarea_gi = asyncio.create_task(_gi_countdown(gp[0], app.bot, app.bot_data))
+            app.bot_data[f"gi_countdown_{gp[0]}"] = tarea_gi
+            logger.info(f"[IDOL] Countdown restaurado prog_id={gp[0]}")
+
+
+# ══════════════════════════════════════════════════════════════
+# ADIVINA LA IDOL
+# ══════════════════════════════════════════════════════════════
+
+GI_TEXTOS = {
+    "es": {
+        "gi_no_owner":          "⚠️ Solo el creador del bot puede usar este comando\\.",
+        "gi_solo_privado":      "⚠️ Este comando solo funciona en chat privado con el bot\\.",
+        "gi_grupos_vacio":      "📭 El bot no ha registrado ningún grupo aún\\.",
+        "gi_sin_pistas":        "_Aún no hay pistas\\._",
+        "gi_hint1_reveal":      "👥 *Pista 1:* El grupo tiene *{hint1}* miembros",
+        "gi_hint2_reveal":      "🏢 *Pista 2:* Pertenece a *{hint2}*",
+        "gi_hint3_reveal":      "🎤 *Pista 3:* El grupo es *{hint3}*",
+        "gi_nueva_pista":       "💡 *¡Nueva pista revelada\\!*\n\n{pista}",
+        "gi_btn_participar":    "✋ Participar",
+        "gi_btn_salir":         "🚪 Detener participación",
+        "gi_ya_participa":      "Ya estás participando.",
+        "gi_unido":             "✅ ¡Ahora participas! Tienes 5 vidas.",
+        "gi_salido":            "👋 Dejaste de participar.",
+        "gi_no_participa":      "No estás participando en esta ronda.",
+        "gi_sin_vidas":         "💀 Ya no tienes vidas en esta ronda.",
+        "gi_confirmar_btn":     "✅ Confirmar respuesta",
+        "gi_confirmar_msg":     "¿Confirmas *{respuesta}* como tu respuesta\\?",
+        "gi_incorrecto":        "❌ Incorrecto\\. Te quedan *{vidas}* vida\\(s\\)\\.",
+        "gi_eliminado":         "💀 *{nombre}* agotó sus vidas y fue eliminado\\.",
+        "gi_ganador":           (
+            "🎉 *¡{nombre} adivinó\\!*\n\n"
+            "La idol era *{idol}*\\.\n"
+            "¡Ganó *{puntos}* punto\\(s\\)\\!\n\n"
+            "_Usa /giscore para ver el marcador\\._"
+        ),
+        "gi_ronda_sin_ganador": (
+            "⏰ *¡Tiempo\\!*\n\n"
+            "Nadie adivinó\\. La idol era *{idol}*\\.\n\n"
+            "_Usa /giscore para ver el marcador\\._"
+        ),
+        "gi_ronda_caption":     (
+            "🕵️‍♀️ *¡ADIVINA LA IDOL\\!*\n\n"
+            "⏰ Termina: *{fin}*\n"
+            "🎯 Puntos al acertar: *{puntos}*\n"
+            "{pistas}\n\n"
+            "_Pulsa Participar y escribe su nombre para ganar\\!_"
+        ),
+        "gi_score_vacio":       "📊 No hay puntos registrados aún\\.",
+        "gi_score_titulo":      "🏆 *Marcador \\— Adivina la Idol:*\n\n{tabla}",
+        "gi_reset_ok":          "🔄 Marcador de Adivina la Idol reseteado\\.",
+        "gi_cancelado":         "❌ Ronda cancelada\\.",
+        "gi_no_ronda":          "⚠️ No hay ronda activa en este grupo\\.",
+    },
+    "en": {
+        "gi_no_owner":          "⚠️ Only the bot creator can use this command\\.",
+        "gi_solo_privado":      "⚠️ This command only works in private chat with the bot\\.",
+        "gi_grupos_vacio":      "📭 The bot hasn't registered any groups yet\\.",
+        "gi_sin_pistas":        "_No hints yet\\._",
+        "gi_hint1_reveal":      "👥 *Hint 1:* The group has *{hint1}* members",
+        "gi_hint2_reveal":      "🏢 *Hint 2:* They belong to *{hint2}*",
+        "gi_hint3_reveal":      "🎤 *Hint 3:* The group is *{hint3}*",
+        "gi_nueva_pista":       "💡 *New hint revealed\\!*\n\n{pista}",
+        "gi_btn_participar":    "✋ Join",
+        "gi_btn_salir":         "🚪 Leave",
+        "gi_ya_participa":      "You're already participating.",
+        "gi_unido":             "✅ You joined! You have 5 lives.",
+        "gi_salido":            "👋 You left the round.",
+        "gi_no_participa":      "You're not participating in this round.",
+        "gi_sin_vidas":         "💀 You have no lives left in this round.",
+        "gi_confirmar_btn":     "✅ Confirm answer",
+        "gi_confirmar_msg":     "Confirm *{respuesta}* as your answer\\?",
+        "gi_incorrecto":        "❌ Wrong\\. You have *{vidas}* life\\(ves\\) left\\.",
+        "gi_eliminado":         "💀 *{nombre}* ran out of lives and was eliminated\\.",
+        "gi_ganador":           (
+            "🎉 *{nombre} guessed it\\!*\n\n"
+            "The idol was *{idol}*\\.\n"
+            "Won *{puntos}* point\\(s\\)\\!\n\n"
+            "_Use /giscore to see the scoreboard\\._"
+        ),
+        "gi_ronda_sin_ganador": (
+            "⏰ *Time's up\\!*\n\n"
+            "Nobody guessed it\\. The idol was *{idol}*\\.\n\n"
+            "_Use /giscore to see the scoreboard\\._"
+        ),
+        "gi_ronda_caption":     (
+            "🕵️‍♀️ *GUESS THE IDOL\\!*\n\n"
+            "⏰ Ends: *{fin}*\n"
+            "🎯 Points for guessing: *{puntos}*\n"
+            "{pistas}\n\n"
+            "_Press Join and type the idol's name to win\\!_"
+        ),
+        "gi_score_vacio":       "📊 No points registered yet\\.",
+        "gi_score_titulo":      "🏆 *Scoreboard \\— Guess the Idol:*\n\n{tabla}",
+        "gi_reset_ok":          "🔄 Guess the Idol scoreboard reset\\.",
+        "gi_cancelado":         "❌ Round cancelled\\.",
+        "gi_no_ronda":          "⚠️ No active round in this group\\.",
+    }
+}
+
+# ── DB helpers GI ─────────────────────────────────────────────
+
+def gi_registrar_grupo(chat_id: int, chat_title: str, chat_key: str):
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO gi_grupos (chat_id, chat_title, chat_key, ultimo_msg) VALUES (?,?,?,CURRENT_TIMESTAMP)",
+                (chat_id, chat_title or "?", chat_key)
+            )
+    except Exception:
+        pass
+
+def gi_get_grupos() -> list:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT chat_id, chat_title, chat_key FROM gi_grupos ORDER BY ultimo_msg DESC"
+        ).fetchall()
+
+def gi_get_ronda_activa(chat_key: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM gi_rondas WHERE chat_key=? AND estado='activa' ORDER BY id DESC LIMIT 1",
+            (chat_key,)
+        ).fetchone()
+
+def gi_get_participante(ronda_id: int, user_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM gi_participantes WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user_id)
+        ).fetchone()
+
+def gi_upsert_participante(ronda_id: int, chat_key: str, user_id: int, username: str) -> bool:
+    """Retorna True si fue añadido, False si ya existía."""
+    if gi_get_participante(ronda_id, user_id):
+        return False
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO gi_participantes (ronda_id, chat_key, user_id, username, vidas, activo) VALUES (?,?,?,?,5,1)",
+            (ronda_id, chat_key, user_id, username)
+        )
+    return True
+
+def gi_desactivar_participante(ronda_id: int, user_id: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE gi_participantes SET activo=0 WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user_id)
+        )
+
+def gi_restar_vida(ronda_id: int, user_id: int) -> int:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE gi_participantes SET vidas = vidas - 1 WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user_id)
+        )
+        row = conn.execute(
+            "SELECT vidas FROM gi_participantes WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user_id)
+        ).fetchone()
+    return row[0] if row else 0
+
+def gi_sumar_puntos(chat_key: str, user_id: int, username: str, puntos: int):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias) VALUES (?,?,?,0,0)",
+            (chat_key, user_id, username)
+        )
+        conn.execute(
+            "UPDATE gi_marcador SET puntos=puntos+?, victorias=victorias+1, username=? WHERE chat_key=? AND user_id=?",
+            (puntos, username, chat_key, user_id)
+        )
+
+def gi_get_marcador(chat_key: str) -> list:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT user_id, username, puntos, victorias FROM gi_marcador WHERE chat_key=? ORDER BY puntos DESC, victorias DESC",
+            (chat_key,)
+        ).fetchall()
+
+# ── Setup helpers GI ──────────────────────────────────────────
+
+def gi_t(lang: str, key: str) -> str:
+    return GI_TEXTOS.get(lang, GI_TEXTOS["es"]).get(key, f"[{key}]")
+
+def gi_build_setup_text(setup: dict, lang: str) -> str:
+    no_conf = "❌ _No configurado_" if lang == "es" else "❌ _Not set_"
+    tz = setup.get("tz_offset", 0)
+
+    img_v    = "✅ _cargada_" if setup.get("file_id") else no_conf
+    img2_v   = "✅ _cargada_" if setup.get("file_id_reveal") else no_conf
+    idol_v   = f"*{esc(setup['idol_name'])}*" if setup.get("idol_name") else no_conf
+    h1_v     = f"*{esc(setup['hint1'])}*" if setup.get("hint1") else no_conf
+    h2_v     = f"*{esc(setup['hint2'])}*" if setup.get("hint2") else no_conf
+    h3_v     = f"*{esc(setup['hint3'])}*" if setup.get("hint3") else no_conf
+    ini_v    = f"*{esc(_formato_hora_local(setup['inicio_ts'], tz))}*" if setup.get("inicio_ts") else no_conf
+    fin_v    = f"*{esc(_formato_hora_local(setup['fin_ts'], tz))}*" if setup.get("fin_ts") else no_conf
+    tz_v     = f"*{esc(_tz_label(tz))}*"
+
+    if lang == "es":
+        titulo = "🎤 *Programar: Adivina la Idol*"
+        nota   = "_Configura todos los campos y pulsa Publicar\\._"
+    else:
+        titulo = "🎤 *Schedule: Guess the Idol*"
+        nota   = "_Configure all fields and press Publish\\._"
+
+    return (
+        f"{titulo}\n\n"
+        f"📸 Imagen misterio: {img_v}\n"
+        f"🖼 Imagen reveal: {img2_v}\n"
+        f"👤 Idol: {idol_v}\n"
+        f"👥 Pista 1 \\(miembros\\): {h1_v}\n"
+        f"🏢 Pista 2 \\(empresa\\): {h2_v}\n"
+        f"🎤 Pista 3 \\(grupo\\): {h3_v}\n"
+        f"⏰ Inicio: {ini_v}\n"
+        f"⏹ Fin: {fin_v}\n"
+        f"🌐 Zona horaria: {tz_v}\n\n"
+        f"{nota}"
+    )
+
+def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
+    tz = setup.get("tz_offset", 0)
+    if lang == "es":
+        rows = [
+            [InlineKeyboardButton("📸 Imagen misterio",            callback_data="gi:setup:imagen")],
+            [InlineKeyboardButton("🖼 Imagen reveal (al acertar)", callback_data="gi:setup:imagen_reveal")],
+            [InlineKeyboardButton("👤 Nombre de la idol",         callback_data="gi:setup:idol")],
+            [InlineKeyboardButton("👥 Pista 1: Miembros del grupo", callback_data="gi:setup:hint1")],
+            [InlineKeyboardButton("🏢 Pista 2: Empresa",          callback_data="gi:setup:hint2")],
+            [InlineKeyboardButton("🎤 Pista 3: Nombre del grupo", callback_data="gi:setup:hint3")],
+            [InlineKeyboardButton("⏰ Hora de inicio",             callback_data="gi:setup:inicio")],
+            [InlineKeyboardButton("⏹ Hora de fin",                callback_data="gi:setup:fin")],
+            [
+                InlineKeyboardButton(f"◀ {_tz_label(max(-12,tz-1))}", callback_data="gi:setup:tz:-1"),
+                InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
+                InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
+            ],
+            [InlineKeyboardButton("👁 Vista previa",              callback_data="gi:setup:preview")],
+            [
+                InlineKeyboardButton("✅ Publicar",  callback_data="gi:setup:publicar"),
+                InlineKeyboardButton("❌ Cancelar",  callback_data="gi:setup:cancelar"),
+            ],
+        ]
+    else:
+        rows = [
+            [InlineKeyboardButton("📸 Mystery image",             callback_data="gi:setup:imagen")],
+            [InlineKeyboardButton("🖼 Reveal image (on correct)", callback_data="gi:setup:imagen_reveal")],
+            [InlineKeyboardButton("👤 Idol name",                 callback_data="gi:setup:idol")],
+            [InlineKeyboardButton("👥 Hint 1: Group members",     callback_data="gi:setup:hint1")],
+            [InlineKeyboardButton("🏢 Hint 2: Company",           callback_data="gi:setup:hint2")],
+            [InlineKeyboardButton("🎤 Hint 3: Group name",        callback_data="gi:setup:hint3")],
+            [InlineKeyboardButton("⏰ Start time",                 callback_data="gi:setup:inicio")],
+            [InlineKeyboardButton("⏹ End time",                   callback_data="gi:setup:fin")],
+            [
+                InlineKeyboardButton(f"◀ {_tz_label(max(-12,tz-1))}", callback_data="gi:setup:tz:-1"),
+                InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
+                InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
+            ],
+            [InlineKeyboardButton("👁 Preview",                   callback_data="gi:setup:preview")],
+            [
+                InlineKeyboardButton("✅ Publish", callback_data="gi:setup:publicar"),
+                InlineKeyboardButton("❌ Cancel",  callback_data="gi:setup:cancelar"),
+            ],
+        ]
+    return rows
+
+def gi_build_ronda_caption(chat_key: str, fin_ts: int, puntos: int,
+                            pistas_dadas: int, hints: dict, tz_offset: int) -> str:
+    lang = get_idioma(chat_key)
+    fin_str = _formato_hora_local(fin_ts, tz_offset)
+    if pistas_dadas == 0:
+        pistas_txt = gi_t(lang, "gi_sin_pistas")
+    else:
+        lineas = []
+        if pistas_dadas >= 1:
+            lineas.append(gi_t(lang, "gi_hint1_reveal").format(hint1=esc(hints["hint1"])))
+        if pistas_dadas >= 2:
+            lineas.append(gi_t(lang, "gi_hint2_reveal").format(hint2=esc(hints["hint2"])))
+        if pistas_dadas >= 3:
+            lineas.append(gi_t(lang, "gi_hint3_reveal").format(hint3=esc(hints["hint3"])))
+        pistas_txt = "\n".join(lineas)
+    return gi_t(lang, "gi_ronda_caption").format(
+        fin=esc(fin_str), puntos=puntos, pistas=pistas_txt
+    )
+
+def gi_build_ronda_keyboard(lang: str) -> list:
+    return [[
+        InlineKeyboardButton(gi_t(lang, "gi_btn_participar"), callback_data="gi:participar"),
+        InlineKeyboardButton(gi_t(lang, "gi_btn_salir"),      callback_data="gi:salir"),
+    ]]
+
+# ── Tasks GI ──────────────────────────────────────────────────
+
+async def _gi_countdown(prog_id: int, bot, bot_data: dict):
+    """Espera hasta inicio_ts y publica la ronda en todos los grupos."""
+    try:
+        with get_conn() as conn:
+            prog = conn.execute(
+                "SELECT * FROM gi_programacion WHERE id=? AND estado='pendiente'",
+                (prog_id,)
+            ).fetchone()
+        if not prog:
+            return
+        # prog: id(0) idol_name(1) file_id(2) file_id_reveal(3) hint1(4) hint2(5) hint3(6) inicio_ts(7) fin_ts(8) tz_offset(9) estado(10)
+        wait = max(0, prog[7] - int(datetime.now(_tz.utc).timestamp()))
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+        with get_conn() as conn:
+            prog = conn.execute(
+                "SELECT * FROM gi_programacion WHERE id=? AND estado='pendiente'",
+                (prog_id,)
+            ).fetchone()
+        if not prog:
+            return
+
+        with get_conn() as conn:
+            conn.execute("UPDATE gi_programacion SET estado='activa' WHERE id=?", (prog_id,))
+
+        grupos = gi_get_grupos()
+        hints = {"hint1": prog[4], "hint2": prog[5], "hint3": prog[6]}
+
+        for grp in grupos:
+            chat_id  = grp[0]
+            chat_key = grp[2]
+            lang = get_idioma(chat_key)
+            try:
+                caption  = gi_build_ronda_caption(chat_key, prog[7], 5, 0, hints, prog[8])
+                keyboard = gi_build_ronda_keyboard(lang)
+                msg = await bot.send_photo(
+                    chat_id,
+                    photo=prog[2],
+                    caption=caption,
+                    parse_mode="MarkdownV2",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                with get_conn() as conn:
+                    conn.execute(
+                        "INSERT INTO gi_rondas (prog_id,chat_key,chat_id,idol_name,file_id,file_id_reveal,hint1,hint2,hint3,"
+                        "inicio_ts,fin_ts,estado,pistas_dadas,puntos_actuales,mensaje_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,'activa',0,5,?)",
+                        (prog_id, chat_key, chat_id, prog[1], prog[2], prog[3], prog[4], prog[5],
+                         prog[6], prog[7], prog[8], msg.message_id)
+                    )
+                    ronda_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+                tarea = asyncio.create_task(_gi_ronda_task(chat_key, ronda_id, bot, bot_data))
+                bot_data[f"gi_ronda_{chat_key}"] = tarea
+                logger.info(f"[IDOL] Ronda iniciada en {chat_key}")
+            except Exception as e:
+                logger.error(f"[IDOL] Error publicando en {chat_key}: {e}")
+
+        bot_data.pop(f"gi_countdown_{prog_id}", None)
+
+    except asyncio.CancelledError:
+        logger.info(f"[IDOL] Countdown {prog_id} cancelado")
+    except Exception as e:
+        logger.error(f"[IDOL] Error en countdown {prog_id}: {e}", exc_info=True)
+
+
+async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
+    """Maneja los intervalos de pistas y el fin de la ronda."""
+    try:
+        with get_conn() as conn:
+            ronda_init = conn.execute("SELECT * FROM gi_rondas WHERE id=?", (ronda_id,)).fetchone()
+        if not ronda_init:
+            return
+
+        # Columnas: id(0) prog_id(1) chat_key(2) chat_id(3) idol_name(4) file_id(5)
+        #           file_id_reveal(6) hint1(7) hint2(8) hint3(9) inicio_ts(10) fin_ts(11)
+        #           estado(12) pistas_dadas(13) puntos_actuales(14) ganador_id(15) ganador_nombre(16) mensaje_id(17)
+        chat_id        = ronda_init[3]
+        inicio_ts      = ronda_init[10]
+        fin_ts         = ronda_init[11]
+        msg_id         = ronda_init[17]
+        file_id_reveal = ronda_init[6]
+        hints          = {"hint1": ronda_init[7], "hint2": ronda_init[8], "hint3": ronda_init[9]}
+        idol_name      = ronda_init[4]
+
+        with get_conn() as conn:
+            prog = conn.execute("SELECT tz_offset FROM gi_programacion WHERE id=?", (ronda_init[1],)).fetchone()
+        tz_offset = prog[0] if prog else 0
+
+        duracion = fin_ts - inicio_ts
+        # 3 pistas en 25%, 50%, 75% del tiempo
+        hint_schedule = [
+            (int(inicio_ts + duracion * 0.25), 3,  "gi_hint1_reveal", "hint1"),
+            (int(inicio_ts + duracion * 0.50), 2,  "gi_hint2_reveal", "hint2"),
+            (int(inicio_ts + duracion * 0.75), 1,  "gi_hint3_reveal", "hint3"),
+        ]
+
+        for idx, (hint_ts, nuevos_puntos, hint_key, hint_field) in enumerate(hint_schedule):
+            wait = hint_ts - int(datetime.now(_tz.utc).timestamp())
+            if wait > 0:
+                await asyncio.sleep(wait)
+
+            with get_conn() as conn:
+                ronda_check = conn.execute(
+                    "SELECT estado FROM gi_rondas WHERE id=?", (ronda_id,)
+                ).fetchone()
+            if not ronda_check or ronda_check[0] != 'activa':
+                return
+
+            pistas_dadas = idx + 1
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE gi_rondas SET pistas_dadas=?, puntos_actuales=? WHERE id=?",
+                    (pistas_dadas, nuevos_puntos, ronda_id)
+                )
+
+            lang = get_idioma(chat_key)
+            # Actualizar caption del mensaje original
+            caption  = gi_build_ronda_caption(chat_key, fin_ts, nuevos_puntos, pistas_dadas, hints, tz_offset)
+            keyboard = gi_build_ronda_keyboard(lang)
+            try:
+                await bot.edit_message_caption(
+                    chat_id=chat_id, message_id=msg_id,
+                    caption=caption, parse_mode="MarkdownV2",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.warning(f"[IDOL] Error editando caption {chat_key}: {e}")
+
+            # Notificación de nueva pista
+            pista_txt = gi_t(lang, hint_key).format(**{hint_field: esc(hints[hint_field])})
+            notif_txt = gi_t(lang, "gi_nueva_pista").format(pista=pista_txt)
+            try:
+                await bot.send_message(chat_id, notif_txt, parse_mode="MarkdownV2")
+            except Exception:
+                pass
+
+        # Esperar hasta el fin
+        wait_fin = fin_ts - int(datetime.now(_tz.utc).timestamp())
+        if wait_fin > 0:
+            await asyncio.sleep(wait_fin)
+
+        with get_conn() as conn:
+            ronda_fin = conn.execute(
+                "SELECT estado FROM gi_rondas WHERE id=?", (ronda_id,)
+            ).fetchone()
+        if not ronda_fin or ronda_fin[0] != 'activa':
+            return  # Alguien ganó mientras esperábamos
+
+        with get_conn() as conn:
+            conn.execute("UPDATE gi_rondas SET estado='terminada' WHERE id=?", (ronda_id,))
+
+        lang     = get_idioma(chat_key)
+        txt_fin  = gi_t(lang, "gi_ronda_sin_ganador").format(idol=esc(idol_name))
+        try:
+            await bot.edit_message_caption(
+                chat_id=chat_id, message_id=msg_id,
+                caption=txt_fin, parse_mode="MarkdownV2"
+            )
+        except Exception:
+            await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
+
+        bot_data.pop(f"gi_ronda_{chat_key}", None)
+
+    except asyncio.CancelledError:
+        logger.info(f"[IDOL] Ronda {ronda_id} cancelada en {chat_key}")
+    except Exception as e:
+        logger.error(f"[IDOL] Error en ronda {ronda_id} {chat_key}: {e}", exc_info=True)
+
+
+# ── Comandos GI ───────────────────────────────────────────────
+
+async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
+        return
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("⚠️ Usa este comando en chat privado con el bot.")
+        return
+    grupos = gi_get_grupos()
+    if not grupos:
+        await update.message.reply_text(gi_t("es", "gi_grupos_vacio"), parse_mode="MarkdownV2")
+        return
+    lista = "\n".join(f"  {i+1}\\. *{esc(g[1])}* \\(`{g[0]}`\\)" for i, g in enumerate(grupos))
+    await update.message.reply_text(
+        f"📋 *Grupos registrados \\({len(grupos)}\\):*\n\n{lista}",
+        parse_mode="MarkdownV2"
+    )
+
+
+async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
+        return
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("⚠️ Usa este comando en chat privado con el bot.")
+        return
+    lang = "es"
+    setup = {
+        "file_id": None, "file_id_reveal": None, "idol_name": None,
+        "hint1": None, "hint2": None, "hint3": None,
+        "inicio_ts": None, "fin_ts": None,
+        "tz_offset": 0, "esperando": None, "mensaje_id": None, "lang": lang
+    }
+    ctx.bot_data[f"gi_setup_{user.id}"] = setup
+    text     = gi_build_setup_text(setup, lang)
+    keyboard = gi_build_setup_keyboard(setup, lang)
+    msg = await update.message.reply_text(
+        text, parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    setup["mensaje_id"] = msg.message_id
+
+
+async def gi_cmd_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    lang     = get_idioma(chat_key)
+    marcador = gi_get_marcador(chat_key)
+    if not marcador:
+        await update.message.reply_text(gi_t(lang, "gi_score_vacio"), parse_mode="MarkdownV2")
+        return
+    MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
+    lineas = []
+    for i, (uid, uname, puntos, victorias) in enumerate(marcador, 1):
+        med = MEDALLAS.get(i, f"{i}\\.")
+        nom = esc(limpiar_nombre_tabla(uname))
+        v_word = "victoria" if victorias == 1 else "victorias"
+        lineas.append(f"{med} *{nom}* — {puntos} pts \\({victorias} {v_word}\\)")
+    tabla = "\n".join(lineas)
+    await update.message.reply_text(
+        gi_t(lang, "gi_score_titulo").format(tabla=tabla),
+        parse_mode="MarkdownV2"
+    )
+
+
+async def gi_cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede resetear el marcador.")
+        return
+    chat_key = get_chat_key(update)
+    lang = get_idioma(chat_key)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM gi_marcador WHERE chat_key=?", (chat_key,))
+    await update.message.reply_text(gi_t(lang, "gi_reset_ok"), parse_mode="MarkdownV2")
+
+
+async def gi_cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede cancelar una ronda.")
+        return
+    chat_key = get_chat_key(update)
+    lang  = get_idioma(chat_key)
+    ronda = gi_get_ronda_activa(chat_key)
+    if not ronda:
+        await update.message.reply_text(gi_t(lang, "gi_no_ronda"), parse_mode="MarkdownV2")
+        return
+    with get_conn() as conn:
+        conn.execute("UPDATE gi_rondas SET estado='terminada' WHERE id=?", (ronda[0],))
+    tarea = ctx.bot_data.pop(f"gi_ronda_{chat_key}", None)
+    if tarea:
+        tarea.cancel()
+    await update.message.reply_text(gi_t(lang, "gi_cancelado"), parse_mode="MarkdownV2")
+
+
+# ── Callbacks GI ──────────────────────────────────────────────
+
+async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("⚠️ Solo el owner puede usar esto.", show_alert=True)
+        return
+    setup = ctx.bot_data.get(f"gi_setup_{user.id}")
+    if not setup:
+        await query.answer("Setup expirado. Usa /idol de nuevo.", show_alert=True)
+        return
+
+    lang   = setup.get("lang", "es")
+    parts  = query.data.split(":")   # gi:setup:action[:value]
+    action = parts[2]
+
+    if action == "imagen":
+        setup["esperando"] = "imagen"
+        msg = "Envía la foto MISTERIO de la idol ahora." if lang == "es" else "Send the MYSTERY photo of the idol now."
+        await query.answer(msg, show_alert=True)
+        return
+
+    elif action == "imagen_reveal":
+        setup["esperando"] = "imagen_reveal"
+        msg = "Envía la foto REVEAL (la que se muestra al acertar)." if lang == "es" else "Send the REVEAL photo (shown when someone guesses correctly)."
+        await query.answer(msg, show_alert=True)
+        return
+
+    elif action in ("idol", "hint1", "hint2", "hint3", "inicio", "fin"):
+        setup["esperando"] = action
+        msg = "Escribe el valor en el chat." if lang == "es" else "Type the value in the chat."
+        await query.answer(msg, show_alert=True)
+        return
+
+    elif action == "tz":
+        delta = int(parts[3])
+        setup["tz_offset"] = max(-12, min(14, setup.get("tz_offset", 0) + delta))
+        await query.answer()
+
+    elif action == "preview":
+        await query.answer()
+        if not setup.get("file_id"):
+            msg = "⚠️ Primero agrega una imagen." if lang == "es" else "⚠️ Add an image first."
+            await query.message.reply_text(msg)
+            return
+        tz      = setup.get("tz_offset", 0)
+        fin_ts  = setup.get("fin_ts") or int(datetime.now(_tz.utc).timestamp()) + 3600
+        hints   = {
+            "hint1": setup.get("hint1") or "?",
+            "hint2": setup.get("hint2") or "?",
+            "hint3": setup.get("hint3") or "?",
+        }
+        # Para la preview, usamos chat_key fake para obtener idioma del owner (es)
+        caption_preview = gi_build_ronda_caption("gi_preview", fin_ts, 5, 0, hints, tz)
+        # Override idioma para preview (siempre es del owner)
+        lang_preview = lang
+        fin_str = _formato_hora_local(fin_ts, tz)
+        cap = gi_t(lang_preview, "gi_ronda_caption").format(
+            fin=esc(fin_str), puntos=5, pistas=gi_t(lang_preview, "gi_sin_pistas")
+        )
+        prev_txt = "👁 *Vista previa:*\n\n" if lang == "es" else "👁 *Preview:*\n\n"
+        try:
+            await query.message.reply_photo(
+                photo=setup["file_id"],
+                caption=prev_txt + cap,
+                parse_mode="MarkdownV2"
+            )
+        except Exception as e:
+            await query.message.reply_text(f"⚠️ Error en preview: {e}")
+        return
+
+    elif action == "publicar":
+        campos_req = ["file_id", "file_id_reveal", "idol_name", "hint1", "hint2", "hint3", "inicio_ts", "fin_ts"]
+        faltantes  = [c for c in campos_req if not setup.get(c)]
+        if faltantes:
+            msg = ("⚠️ Faltan: " if lang == "es" else "⚠️ Missing: ") + ", ".join(faltantes)
+            await query.answer(msg, show_alert=True)
+            return
+        if setup["fin_ts"] <= setup["inicio_ts"]:
+            msg = "⚠️ La hora de fin debe ser después del inicio." if lang == "es" else "⚠️ End time must be after start time."
+            await query.answer(msg, show_alert=True)
+            return
+        grupos = gi_get_grupos()
+        if not grupos:
+            msg = "⚠️ No hay grupos registrados." if lang == "es" else "⚠️ No registered groups."
+            await query.answer(msg, show_alert=True)
+            return
+
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO gi_programacion (idol_name,file_id,file_id_reveal,hint1,hint2,hint3,inicio_ts,fin_ts,tz_offset,estado) "
+                "VALUES (?,?,?,?,?,?,?,?,?,'pendiente')",
+                (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
+                 setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"], setup.get("tz_offset", 0))
+            )
+            prog_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        tz       = setup.get("tz_offset", 0)
+        ini_str  = _formato_hora_local(setup["inicio_ts"], tz)
+        fin_str2 = _formato_hora_local(setup["fin_ts"], tz)
+        conf_txt = (
+            f"✅ *¡Programado\\!*\n\n"
+            f"👤 Idol: *{esc(setup['idol_name'])}*\n"
+            f"⏰ Inicio: *{esc(ini_str)}*\n"
+            f"⏹ Fin: *{esc(fin_str2)}*\n"
+            f"📢 Grupos: *{len(grupos)}*"
+        )
+        await ctx.bot.send_message(user.id, conf_txt, parse_mode="MarkdownV2")
+
+        tarea = asyncio.create_task(_gi_countdown(prog_id, ctx.bot, ctx.bot_data))
+        ctx.bot_data[f"gi_countdown_{prog_id}"] = tarea
+        ctx.bot_data.pop(f"gi_setup_{user.id}", None)
+        return
+
+    elif action == "cancelar":
+        ctx.bot_data.pop(f"gi_setup_{user.id}", None)
+        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Redibujar menú
+    text     = gi_build_setup_text(setup, lang)
+    keyboard = gi_build_setup_keyboard(setup, lang)
+    try:
+        await query.message.edit_text(
+            text, parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception:
+        pass
+
+
+async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query    = update.callback_query
+    chat_key = get_chat_key(update)
+    user     = query.from_user
+    lang     = get_idioma(chat_key)
+    action   = query.data   # "gi:participar" or "gi:salir"
+
+    ronda = gi_get_ronda_activa(chat_key)
+    if not ronda:
+        await query.answer(gi_t(lang, "gi_no_ronda").replace("\\.", ".").replace("\\", ""), show_alert=True)
+        return
+
+    ronda_id = ronda[0]
+
+    if action == "gi:participar":
+        participante = gi_get_participante(ronda_id, user.id)
+        if participante:
+            await query.answer(gi_t(lang, "gi_ya_participa"), show_alert=True)
+            return
+        gi_upsert_participante(ronda_id, chat_key, user.id, nombre(user))
+        await query.answer(gi_t(lang, "gi_unido"), show_alert=True)
+
+    elif action == "gi:salir":
+        participante = gi_get_participante(ronda_id, user.id)
+        if not participante or not participante[6]:
+            await query.answer(gi_t(lang, "gi_no_participa"), show_alert=True)
+            return
+        gi_desactivar_participante(ronda_id, user.id)
+        await query.answer(gi_t(lang, "gi_salido"), show_alert=True)
+
+
+async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query    = update.callback_query
+    chat_key = get_chat_key(update)
+    user     = query.from_user
+    lang     = get_idioma(chat_key)
+
+    # callback: gi:confirmar:{user_id}:{ronda_id}
+    parts = query.data.split(":")
+    if len(parts) < 4:
+        await query.answer()
+        return
+    target_uid = int(parts[2])
+    ronda_id   = int(parts[3])
+
+    if user.id != target_uid:
+        await query.answer("Esta confirmación no es tuya.", show_alert=True)
+        return
+
+    intento_key = f"gi_intento_{chat_key}_{user.id}"
+    respuesta   = ctx.bot_data.pop(intento_key, None)
+    if not respuesta:
+        await query.answer()
+        return
+
+    with get_conn() as conn:
+        ronda = conn.execute(
+            "SELECT * FROM gi_rondas WHERE id=? AND estado='activa'", (ronda_id,)
+        ).fetchone()
+
+    if not ronda:
+        await query.answer("La ronda ya terminó.", show_alert=True)
+        return
+
+    idol_name       = ronda[4]
+    file_id_reveal  = ronda[6]
+    puntos_actuales = ronda[14]
+    chat_id         = query.message.chat.id
+    msg_id_ronda    = ronda[17]
+
+    await query.answer()
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    if normalizar(respuesta) == normalizar(idol_name):
+        # ¡CORRECTO!
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE gi_rondas SET estado='terminada', ganador_id=?, ganador_nombre=? WHERE id=?",
+                (user.id, nombre(user), ronda_id)
+            )
+        tarea = ctx.bot_data.pop(f"gi_ronda_{chat_key}", None)
+        if tarea:
+            tarea.cancel()
+        gi_sumar_puntos(chat_key, user.id, nombre(user), puntos_actuales)
+
+        txt_ganador = gi_t(lang, "gi_ganador").format(
+            nombre=esc(nombre(user)), idol=esc(idol_name), puntos=puntos_actuales
+        )
+        try:
+            await ctx.bot.edit_message_caption(
+                chat_id=chat_id, message_id=msg_id_ronda,
+                caption=txt_ganador, parse_mode="MarkdownV2"
+            )
+        except Exception:
+            await ctx.bot.send_message(chat_id, txt_ganador, parse_mode="MarkdownV2")
+        # Enviar imagen reveal
+        if file_id_reveal:
+            try:
+                await ctx.bot.send_photo(chat_id, photo=file_id_reveal)
+            except Exception:
+                pass
+    else:
+        # INCORRECTO
+        vidas = gi_restar_vida(ronda_id, user.id)
+        if vidas <= 0:
+            gi_desactivar_participante(ronda_id, user.id)
+            txt_elim = gi_t(lang, "gi_eliminado").format(nombre=esc(nombre(user)))
+            await ctx.bot.send_message(chat_id, txt_elim, parse_mode="MarkdownV2")
+        else:
+            txt_mal = gi_t(lang, "gi_incorrecto").format(vidas=vidas)
+            await ctx.bot.send_message(chat_id, txt_mal, parse_mode="MarkdownV2")
+
+
+async def gi_handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Recibe fotos en privado del owner para el setup de /idol."""
+    if not update.message or update.effective_chat.type != "private":
+        return
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        return
+    setup = ctx.bot_data.get(f"gi_setup_{user.id}")
+    if not setup or setup.get("esperando") not in ("imagen", "imagen_reveal"):
+        return
+
+    photo = update.message.photo[-1]
+    campo_foto = setup.get("esperando", "imagen")
+    if campo_foto == "imagen_reveal":
+        setup["file_id_reveal"] = photo.file_id
+    else:
+        setup["file_id"] = photo.file_id
+    setup["esperando"] = None
+    lang   = setup.get("lang", "es")
+    msg_id = setup.get("mensaje_id")
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+    text     = gi_build_setup_text(setup, lang)
+    keyboard = gi_build_setup_keyboard(setup, lang)
+    if msg_id:
+        try:
+            await ctx.bot.edit_message_text(
+                text, chat_id=user.id, message_id=msg_id,
+                parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+        except Exception:
+            pass
+    msg = await update.message.reply_text(
+        text, parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    setup["mensaje_id"] = msg.message_id
+
 
 def main():
     init_db()
@@ -4534,6 +5558,11 @@ def main():
     app.add_handler(CommandHandler("addword",           cmd_addword))
     app.add_handler(CommandHandler("removeword",        cmd_removeword))
     app.add_handler(CommandHandler("words",             cmd_words))
+    app.add_handler(CommandHandler("grupos",            gi_cmd_grupos))
+    app.add_handler(CommandHandler("idol",              gi_cmd_idol))
+    app.add_handler(CommandHandler("giscore",           gi_cmd_score))
+    app.add_handler(CommandHandler("gireset",           gi_cmd_reset))
+    app.add_handler(CommandHandler("gicancel",          gi_cmd_cancelar))
 
     app.add_handler(CallbackQueryHandler(btn_cancelar_lobby,    pattern="^cancelar_lobby$"))
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
@@ -4545,7 +5574,11 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
+    app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
     app.add_handler(CallbackQueryHandler(btn_idioma,          pattern="^idioma:"))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, gi_handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
     app.add_error_handler(error_handler)
 
