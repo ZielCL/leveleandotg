@@ -4233,15 +4233,7 @@ async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user     = update.effective_user
     chat     = update.effective_chat
 
-    try:
-        member   = await chat.get_member(user.id)
-        es_admin = member.status in ("administrator", "creator")
-    except Exception:
-        es_admin = False
-
-    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
-
-    if not es_admin and not es_owner:
+    if not (BOT_OWNER_ID and user.id == BOT_OWNER_ID):
         await update.message.reply_text(t(chat_key, "resetjugador_solo_admin"))
         return
 
