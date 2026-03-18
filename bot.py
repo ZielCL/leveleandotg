@@ -4724,11 +4724,11 @@ GI_TEXTOS = {
             "_Usa /giscore para ver el marcador\\._"
         ),
         "gi_ronda_caption":     (
-            "🕵️‍♀️ *¡ADIVINA LA IDOL\\!*\n\n"
+            "🎤 *ADIVINA LA IDOL*\n\n"
             "⏰ Termina: *{fin}*\n"
-            "🎯 Puntos al acertar: *{puntos}*\n"
+            "🎯 Puntos: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Pulsa Participar y escribe su nombre para ganar\\!_"
+            "_Escribe el nombre para ganar\\._"
         ),
         "gi_score_vacio":       "📊 No hay puntos registrados aún\\.",
         "gi_score_titulo":      "🏆 *Marcador \\— Adivina la Idol:*\n\n{tabla}",
@@ -4768,11 +4768,11 @@ GI_TEXTOS = {
             "_Use /giscore to see the scoreboard\\._"
         ),
         "gi_ronda_caption":     (
-            "🕵️‍♀️ *GUESS THE IDOL\\!*\n\n"
+            "🎤 *GUESS THE IDOL*\n\n"
             "⏰ Ends: *{fin}*\n"
-            "🎯 Points for guessing: *{puntos}*\n"
+            "🎯 Points: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Press Join and type the idol's name to win\\!_"
+            "_Type the name to win\\._"
         ),
         "gi_score_vacio":       "📊 No points registered yet\\.",
         "gi_score_titulo":      "🏆 *Scoreboard \\— Guess the Idol:*\n\n{tabla}",
@@ -5056,6 +5056,7 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
         inicio_ts      = ronda_init[10]
         fin_ts         = ronda_init[11]
         msg_id         = ronda_init[17]
+        file_id        = ronda_init[5]
         file_id_reveal = ronda_init[6]
         hints          = {"hint1": ronda_init[7], "hint2": ronda_init[8], "hint3": ronda_init[9]}
         idol_name      = ronda_init[4]
@@ -5092,25 +5093,32 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
                 )
 
             lang = get_idioma(chat_key)
-            # Actualizar caption del mensaje original
             caption  = gi_build_ronda_caption(chat_key, fin_ts, nuevos_puntos, pistas_dadas, hints, tz_offset)
             keyboard = gi_build_ronda_keyboard(lang)
-            try:
-                await bot.edit_message_caption(
-                    chat_id=chat_id, message_id=msg_id,
-                    caption=caption, parse_mode="MarkdownV2",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.warning(f"[IDOL] Error editando caption {chat_key}: {e}")
 
-            # Notificación de nueva pista
-            pista_txt = gi_t(lang, hint_key).format(**{hint_field: esc(hints[hint_field])})
-            notif_txt = gi_t(lang, "gi_nueva_pista").format(pista=pista_txt)
+            # Borrar el post anterior (imagen misterio o pista anterior)
             try:
-                await bot.send_message(chat_id, notif_txt, parse_mode="MarkdownV2")
+                await bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception:
                 pass
+
+            # Publicar nuevo post con imagen misterio + pistas acumuladas + botones
+            try:
+                nuevo_msg = await bot.send_photo(
+                    chat_id,
+                    photo=file_id,
+                    caption=caption,
+                    parse_mode="MarkdownV2",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                msg_id = nuevo_msg.message_id
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE gi_rondas SET mensaje_id=? WHERE id=?",
+                        (msg_id, ronda_id)
+                    )
+            except Exception as e:
+                logger.error(f"[IDOL] Error publicando pista con imagen {chat_key}: {e}")
 
         # Esperar hasta el fin
         wait_fin = fin_ts - int(datetime.now(_tz.utc).timestamp())
@@ -5560,10 +5568,13 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             await ctx.bot.send_message(chat_id, txt_ganador, parse_mode="MarkdownV2")
-        # Enviar imagen reveal
+        # Enviar imagen reveal con el texto del ganador como caption
         if file_id_reveal:
             try:
-                await ctx.bot.send_photo(chat_id, photo=file_id_reveal)
+                await ctx.bot.send_photo(
+                    chat_id, photo=file_id_reveal,
+                    caption=txt_ganador, parse_mode="MarkdownV2"
+                )
             except Exception:
                 pass
     else:
