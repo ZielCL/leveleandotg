@@ -544,6 +544,10 @@ TEXTOS = {
         "removeword_no_existe":     "⚠️ *{palabra}* no está en la lista\\.",
         "removeword_solo_admin":    "⚠️ Solo los administradores pueden eliminar palabras.",
         "removeword_uso":           "⚠️ Uso: `/removeword <palabra>`",
+        "resetjugador_ok":          "🔄 *Puntajes de {nombre} reseteados\\.*",
+        "resetjugador_no_encontrado":"⚠️ No encontré a *{nombre}* en este grupo\\.",
+        "resetjugador_uso":          "⚠️ Uso: `/resetjugador @usuario` o `/resetjugador nombre`",
+        "resetjugador_solo_admin":   "⚠️ Solo los administradores pueden resetear jugadores.",
         "roles_tabla":              "🎭 *Roles por jugador:*\n\n{tabla}",
         "roles_tabla_header":       "🎭 *Roles por jugador:*",
         "roles_sin_datos":          "📊 No hay datos de roles aún\\. ¡Juega primero\\!",
@@ -737,6 +741,10 @@ TEXTOS = {
         "removeword_no_existe":     "⚠️ *{palabra}* is not in the list\\.",
         "removeword_solo_admin":    "⚠️ Only admins can remove words.",
         "removeword_uso":           "⚠️ Usage: `/removeword <word>`",
+        "resetjugador_ok":          "🔄 *{nombre}'s scores have been reset\\.*",
+        "resetjugador_no_encontrado":"⚠️ Couldn't find *{nombre}* in this group\\.",
+        "resetjugador_uso":          "⚠️ Usage: `/resetjugador @username` or `/resetjugador name`",
+        "resetjugador_solo_admin":   "⚠️ Only admins can reset players.",
         "roles_tabla":              "🎭 *Roles per player:*\n\n{tabla}",
         "roles_tabla_header":       "🎭 *Roles per player:*",
         "roles_sin_datos":          "📊 No role data yet\\. Play first\\!",
@@ -2351,13 +2359,14 @@ async def cmd_idioma(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await update.message.reply_text(t(chat_key, "solo_admin_idioma"))
         return
 
@@ -2378,13 +2387,14 @@ async def btn_idioma(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await update.effective_chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await query.answer(t(chat_key, "solo_admin_idioma"), show_alert=True)
         return
 
@@ -4218,18 +4228,82 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user     = update.effective_user
+    chat     = update.effective_chat
+
+    try:
+        member   = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
+
+    if not es_admin and not es_owner:
+        await update.message.reply_text(t(chat_key, "resetjugador_solo_admin"))
+        return
+
+    if not ctx.args:
+        await update.message.reply_text(t(chat_key, "resetjugador_uso"), parse_mode="MarkdownV2")
+        return
+
+    busqueda = " ".join(ctx.args).strip().lstrip("@")
+
+    # Buscar primero por text_mention en las entidades del mensaje
+    target_id   = None
+    target_name = None
+    if update.message.entities:
+        for e in update.message.entities:
+            if e.type == "text_mention" and e.user:
+                target_id   = e.user.id
+                target_name = e.user.first_name
+                break
+
+    # Si no hay mención directa, buscar en DB por username o nombre
+    if target_id is None:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
+                (chat_key, busqueda)
+            ).fetchone()
+        if row:
+            target_id, target_name = row[0], row[1]
+
+    if target_id is None:
+        await update.message.reply_text(
+            t(chat_key, "resetjugador_no_encontrado").format(nombre=esc(busqueda)),
+            parse_mode="MarkdownV2"
+        )
+        return
+
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jugadores SET victorias=0, derrotas=0, veces_impostor=0, veces_inocente=0, "
+            "victorias_impostor=0, victorias_inocente=0 WHERE chat_key=? AND user_id=?",
+            (chat_key, target_id)
+        )
+
+    await update.message.reply_text(
+        t(chat_key, "resetjugador_ok").format(nombre=esc(target_name or busqueda)),
+        parse_mode="MarkdownV2"
+    )
+
+
 async def cmd_resetimpostor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user = update.effective_user
     chat = update.effective_chat
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await update.message.reply_text(t(chat_key, "solo_admin_reset"))
         return
 
@@ -4247,13 +4321,14 @@ async def cmd_resetroles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await update.message.reply_text(t(chat_key, "solo_admin_reset"))
         return
 
@@ -4302,13 +4377,14 @@ async def cmd_addword(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await update.message.reply_text(t(chat_key, "addword_solo_admin"))
         return
 
@@ -4336,13 +4412,14 @@ async def cmd_removeword(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
     try:
         member = await chat.get_member(user.id)
         es_admin = member.status in ("administrator", "creator")
     except Exception:
         es_admin = False
 
-    if not es_admin:
+    if not es_owner and not es_admin:
         await update.message.reply_text(t(chat_key, "removeword_solo_admin"))
         return
 
@@ -5707,6 +5784,7 @@ def main():
     app.add_handler(CommandHandler("cancel",      cmd_cancelar))
     app.add_handler(CommandHandler("howtoplay",     cmd_como_jugar))
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
+    app.add_handler(CommandHandler("resetjugador",  cmd_resetjugador))
     app.add_handler(CommandHandler("resetroles",    cmd_resetroles))
     app.add_handler(CommandHandler("language",        cmd_idioma))
     app.add_handler(CommandHandler("program",             cmd_program))
