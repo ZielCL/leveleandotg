@@ -1841,10 +1841,31 @@ async def _task_programa_countdown(chat_key: str, prog_id: int, bot, bot_data: d
                     cancel_btn = "❌ Cancelar partida" if lang == "es" else "❌ Cancel game"
                     kbd        = [[InlineKeyboardButton(cancel_btn, callback_data="programa:cancelar_prog")]]
                     texto      = _build_countdown_text(chat_key, hora_ts, puntos, tz_offset, restantes)
-                    await bot.edit_message_text(
-                        texto, chat_id=chat_id, message_id=mensaje_id,
-                        parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd)
-                    )
+
+                    if restantes <= 300:
+                        # Últimos 5 min: solo editar (no mover para no spamear)
+                        await bot.edit_message_text(
+                            texto, chat_id=chat_id, message_id=mensaje_id,
+                            parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd)
+                        )
+                    else:
+                        # Actualización horaria: borrar el anterior y publicar nuevo
+                        try:
+                            await bot.delete_message(chat_id=chat_id, message_id=mensaje_id)
+                        except Exception:
+                            pass
+                        nuevo_msg = await bot.send_message(
+                            chat_id, texto, parse_mode="MarkdownV2",
+                            reply_markup=InlineKeyboardMarkup(kbd),
+                            message_thread_id=thread_id
+                        )
+                        mensaje_id = nuevo_msg.message_id
+                        with get_conn() as conn:
+                            conn.execute(
+                                "UPDATE programacion SET mensaje_id=? WHERE id=?",
+                                (mensaje_id, prog_id)
+                            )
+
                 except Exception as e:
                     logger.warning(f"[PROGRAMA] Error actualizando countdown {chat_key}: {e}")
 
