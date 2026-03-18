@@ -1475,6 +1475,17 @@ def init_db():
             voted_id    INTEGER,
             fecha       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS programacion (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key        TEXT,
+            chat_id         INTEGER,
+            thread_id       INTEGER,
+            hora_inicio     INTEGER,
+            puntos_victoria INTEGER DEFAULT 1,
+            tz_offset       INTEGER DEFAULT 0,
+            mensaje_id      INTEGER,
+            estado          TEXT DEFAULT 'pendiente'
+        );
     """)
     conn.commit()
     # Migración: agregar columnas nuevas si no existen (DBs antiguas)
@@ -1484,6 +1495,11 @@ def init_db():
             conn.commit()
         except Exception:
             pass  # Ya existe
+    try:
+        conn.execute("ALTER TABLE config ADD COLUMN timezone_offset INTEGER DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 def get_conn():
@@ -1657,6 +1673,391 @@ def eliminar_de_vivos(chat_key, user_id):
 # ══════════════════════════════════════════════════════════════
 # COMANDOS
 # ══════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════
+# PROGRAMACIÓN DE PARTIDAS
+# ══════════════════════════════════════════════════════════════
+
+BOT_OWNER_ID = int(os.environ.get("BOT_OWNER_ID", "0"))
+
+from datetime import datetime, timezone as _tz, timedelta
+
+def _parse_hora(hora_str: str, tz_offset: int):
+    try:
+        hora_str = hora_str.strip()
+        h, m = hora_str.split(":", 1)
+        h, m = int(h), int(m)
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return None
+        now_utc   = datetime.now(_tz.utc)
+        local_obj = _tz(timedelta(hours=tz_offset))
+        now_local = now_utc.astimezone(local_obj)
+        sched     = now_local.replace(hour=h, minute=m, second=0, microsecond=0)
+        if sched <= now_local:
+            sched += timedelta(days=1)
+        return int(sched.astimezone(_tz.utc).timestamp())
+    except Exception:
+        return None
+
+def _formato_hora_local(ts: int, tz_offset: int) -> str:
+    dt    = datetime.fromtimestamp(ts, tz=_tz.utc)
+    local = dt + timedelta(hours=tz_offset)
+    if tz_offset == 0:   tz_label = "UTC"
+    elif tz_offset > 0:  tz_label = f"UTC+{tz_offset}"
+    else:                tz_label = f"UTC{tz_offset}"
+    return local.strftime(f"%H:%M ({tz_label})")
+
+def _formato_countdown(segundos: int, lang: str = "es") -> str:
+    if segundos <= 0:
+        return "¡Ahora!" if lang == "es" else "Now!"
+    horas   = segundos // 3600
+    minutos = (segundos % 3600) // 60
+    if lang == "es":
+        return f"{horas}h {minutos}min" if horas > 0 else f"{minutos} minutos"
+    return f"{horas}h {minutos}min" if horas > 0 else f"{minutos} minutes"
+
+def _tz_label(offset: int) -> str:
+    if offset == 0:   return "UTC"
+    if offset > 0:    return f"UTC+{offset}"
+    return f"UTC{offset}"
+
+def get_programa_pendiente(chat_key: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM programacion WHERE chat_key=? AND estado='pendiente' ORDER BY id DESC LIMIT 1",
+            (chat_key,)
+        ).fetchone()
+
+def cancelar_programas_db(chat_key: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE programacion SET estado='cancelada' WHERE chat_key=? AND estado='pendiente'",
+            (chat_key,)
+        )
+
+def _build_programa_setup_text(chat_key: str, setup: dict):
+    lang   = get_idioma(chat_key)
+    hora_ts = setup.get("hora_inicio")
+    tz     = setup.get("tz_offset", 0)
+    puntos = setup.get("puntos", 1)
+    tz_lbl = _tz_label(tz)
+    hora_str = _formato_hora_local(hora_ts, tz) if hora_ts else ("No configurada" if lang == "es" else "Not set")
+    pts_str  = f"{puntos} punto{'s' if puntos > 1 else ''}" if lang == "es" else f"{puntos} point{'s' if puntos > 1 else ''}"
+
+    if lang == "es":
+        text = (
+            "📅 *Programar partida*\n\n"
+            f"⏰ Hora de inicio: *{esc(hora_str)}*\n"
+            f"🏆 Victorias valen: *{esc(pts_str)}*\n"
+            f"🌐 Zona horaria: *{esc(tz_lbl)}*\n\n"
+            "_Configura las opciones y pulsa Programar_"
+        )
+        btn_confirmar = "✅ Programar"
+        btn_cancelar  = "❌ Cancelar"
+        btn_hora      = "⏰ Configurar hora de inicio"
+        btn_puntos    = f"🏆 {'2 pts → cambiar a 1' if puntos == 2 else '1 pt → cambiar a 2'}"
+    else:
+        text = (
+            "📅 *Schedule game*\n\n"
+            f"⏰ Start time: *{esc(hora_str)}*\n"
+            f"🏆 Wins worth: *{esc(pts_str)}*\n"
+            f"🌐 Timezone: *{esc(tz_lbl)}*\n\n"
+            "_Configure options and press Schedule_"
+        )
+        btn_confirmar = "✅ Schedule"
+        btn_cancelar  = "❌ Cancel"
+        btn_hora      = "⏰ Set start time"
+        btn_puntos    = f"🏆 {'2pts → change to 1' if puntos == 2 else '1pt → change to 2'}"
+
+    keyboard = [
+        [InlineKeyboardButton(btn_hora, callback_data="programa:hora")],
+        [
+            InlineKeyboardButton(f"◀ {_tz_label(max(-12, tz-1))}", callback_data="programa:tz:-1"),
+            InlineKeyboardButton(f"🌐 {tz_lbl}", callback_data="programa:tz:0"),
+            InlineKeyboardButton(f"{_tz_label(min(14, tz+1))} ▶", callback_data="programa:tz:+1"),
+        ],
+        [InlineKeyboardButton(btn_puntos, callback_data="programa:puntos")],
+        [
+            InlineKeyboardButton(btn_confirmar, callback_data="programa:confirmar"),
+            InlineKeyboardButton(btn_cancelar,  callback_data="programa:cancelar"),
+        ],
+    ]
+    return text, keyboard
+
+def _build_countdown_text(chat_key: str, hora_ts: int, puntos: int, tz_offset: int, segundos: int) -> str:
+    lang      = get_idioma(chat_key)
+    hora_str  = _formato_hora_local(hora_ts, tz_offset)
+    countdown = _formato_countdown(segundos, lang)
+    if lang == "es":
+        pts_desc = f"victorias valen *{puntos} {'punto' if puntos == 1 else 'puntos'}*"
+        return (
+            "🎮 *¡PARTIDA PROGRAMADA\\!*\n\n"
+            f"🕐 Inicio: *{esc(hora_str)}*\n"
+            f"⏱️ Faltan: *{esc(countdown)}*\n"
+            f"🏆 Las {pts_desc}\n\n"
+            "_Usa /join cuando empiece para sumarte_"
+        )
+    pts_desc = f"wins worth *{puntos} {'point' if puntos == 1 else 'points'}*"
+    return (
+        "🎮 *GAME SCHEDULED\\!*\n\n"
+        f"🕐 Start: *{esc(hora_str)}*\n"
+        f"⏱️ Time left: *{esc(countdown)}*\n"
+        f"🏆 {pts_desc}\n\n"
+        "_Use /join when it starts to join_"
+    )
+
+async def _task_programa_countdown(chat_key: str, prog_id: int, bot, bot_data: dict):
+    """Actualiza el countdown cada hora y lanza la partida a tiempo."""
+    try:
+        while True:
+            with get_conn() as conn:
+                prog = conn.execute(
+                    "SELECT * FROM programacion WHERE id=? AND estado='pendiente'",
+                    (prog_id,)
+                ).fetchone()
+            if not prog:
+                return
+            hora_ts    = prog[4]
+            puntos     = prog[5]
+            tz_offset  = prog[6] if prog[6] is not None else 0
+            chat_id    = prog[2]
+            thread_id  = prog[3]
+            mensaje_id = prog[7]
+            now_ts     = int(datetime.now(_tz.utc).timestamp())
+            restantes  = hora_ts - now_ts
+
+            if restantes <= 60:
+                with get_conn() as conn:
+                    conn.execute("UPDATE programacion SET estado='activa' WHERE id=?", (prog_id,))
+                await _iniciar_partida_programada(
+                    chat_key, chat_id, thread_id, puntos, tz_offset, mensaje_id, bot, bot_data
+                )
+                bot_data.pop(f"programa_tarea_{chat_key}", None)
+                return
+
+            if mensaje_id:
+                try:
+                    lang       = get_idioma(chat_key)
+                    cancel_btn = "❌ Cancelar partida" if lang == "es" else "❌ Cancel game"
+                    kbd        = [[InlineKeyboardButton(cancel_btn, callback_data="programa:cancelar_prog")]]
+                    texto      = _build_countdown_text(chat_key, hora_ts, puntos, tz_offset, restantes)
+                    await bot.edit_message_text(
+                        texto, chat_id=chat_id, message_id=mensaje_id,
+                        parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(kbd)
+                    )
+                except Exception as e:
+                    logger.warning(f"[PROGRAMA] Error actualizando countdown {chat_key}: {e}")
+
+            await asyncio.sleep(60 if restantes <= 300 else 3600)
+
+    except asyncio.CancelledError:
+        logger.info(f"[PROGRAMA] Countdown cancelado {chat_key}")
+    except Exception as e:
+        logger.error(f"[PROGRAMA] Error en countdown {chat_key}: {e}", exc_info=True)
+
+async def _iniciar_partida_programada(chat_key: str, chat_id: int, thread_id,
+                                       puntos: int, tz_offset: int, mensaje_id,
+                                       bot, bot_data: dict):
+    """Crea el lobby de la partida programada y anuncia en el grupo."""
+    partida = get_partida(chat_key)
+    if partida and partida[2] not in ("terminada",):
+        logger.warning(f"[PROGRAMA] Partida ya activa en {chat_key}, omitiendo inicio programado")
+        return
+    limpiar_jugadores_activos(chat_key)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO partidas (chat_key, chat_id, estado, creador_id, ronda) VALUES (?,?,?,?,1)",
+            (chat_key, chat_id, "esperando", 0)
+        )
+    if puntos > 1:
+        bot_data[f"multiplicador_{chat_key}"] = puntos
+    lang = get_idioma(chat_key)
+    if lang == "es":
+        pts_txt = f"victorias valen *{puntos} {'punto' if puntos == 1 else 'puntos'}*"
+        texto   = (
+            "🎮 *¡HORA DE JUGAR\\!*\n\n"
+            f"La partida programada *acaba de abrirse*\\. Las {pts_txt}\\.\n\n"
+            "Pulsen el botón o usen /join para unirse\\."
+        )
+        btn_txt = "✋ Unirse a la partida"
+    else:
+        pts_txt = f"wins worth *{puntos} {'point' if puntos == 1 else 'points'}*"
+        texto   = (
+            "🎮 *TIME TO PLAY\\!*\n\n"
+            f"The scheduled game *just opened*\\. {pts_txt}\\.\n\n"
+            "Press the button or use /join to join\\."
+        )
+        btn_txt = "✋ Join the game"
+    keyboard = [[InlineKeyboardButton(btn_txt, callback_data="unirse")]]
+    if mensaje_id:
+        try:
+            await bot.edit_message_text(
+                texto, chat_id=chat_id, message_id=mensaje_id,
+                parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception:
+            await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
+                                   reply_markup=InlineKeyboardMarkup(keyboard),
+                                   message_thread_id=thread_id)
+    else:
+        await bot.send_message(chat_id, texto, parse_mode="MarkdownV2",
+                               reply_markup=InlineKeyboardMarkup(keyboard),
+                               message_thread_id=thread_id)
+    logger.info(f"[PROGRAMA] Partida programada iniciada en {chat_key}")
+
+
+async def cmd_program(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_key = get_chat_key(update)
+    user     = update.effective_user
+    chat     = update.effective_chat
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
+    try:
+        member   = await chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+    if not es_owner and not es_admin:
+        lang = get_idioma(chat_key)
+        msg  = ("⚠️ Solo el creador del bot o los administradores pueden programar partidas."
+                if lang == "es" else
+                "⚠️ Only the bot creator or group admins can schedule games.")
+        await update.message.reply_text(msg)
+        return
+    setup = {
+        "hora_inicio": None, "puntos": 1, "tz_offset": 0,
+        "esperando_hora": False, "admin_id": user.id, "mensaje_setup_id": None,
+    }
+    ctx.bot_data[f"programa_setup_{chat_key}"] = setup
+    text, keyboard = _build_programa_setup_text(chat_key, setup)
+    msg = await update.message.reply_text(
+        text, parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    setup["mensaje_setup_id"] = msg.message_id
+
+
+async def btn_programa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query    = update.callback_query
+    chat_key = get_chat_key(update)
+    user     = query.from_user
+    lang     = get_idioma(chat_key)
+
+    if query.data == "programa:cancelar_prog":
+        es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
+        try:
+            member   = await update.effective_chat.get_member(user.id)
+            es_admin = member.status in ("administrator", "creator")
+        except Exception:
+            es_admin = False
+        if not es_owner and not es_admin:
+            await query.answer("⚠️ Solo admins pueden cancelar.", show_alert=True)
+            return
+        tarea = ctx.bot_data.pop(f"programa_tarea_{chat_key}", None)
+        if tarea:
+            tarea.cancel()
+        cancelar_programas_db(chat_key)
+        await query.answer()
+        cancel_txt = "❌ *Partida programada cancelada\\.*" if lang == "es" else "❌ *Scheduled game cancelled\\.*"
+        try:
+            await query.message.edit_text(cancel_txt, parse_mode="MarkdownV2")
+        except Exception:
+            pass
+        return
+
+    setup = ctx.bot_data.get(f"programa_setup_{chat_key}")
+    if not setup:
+        await query.answer(
+            "Setup expirado. Usa /program de nuevo." if lang == "es" else "Setup expired. Use /program again.",
+            show_alert=True
+        )
+        return
+    if user.id != setup.get("admin_id"):
+        await query.answer(
+            "Solo quien usó /program puede configurar esto." if lang == "es" else "Only who used /program can configure this.",
+            show_alert=True
+        )
+        return
+
+    parts  = query.data.split(":")
+    action = parts[1]
+
+    if action == "hora":
+        setup["esperando_hora"] = True
+        alert = ("Escribe la hora en formato HH:MM en el chat (ej: 20:00)"
+                 if lang == "es" else "Type the time in HH:MM format in the chat (eg: 20:00)")
+        await query.answer(alert, show_alert=True)
+        return
+
+    elif action == "puntos":
+        setup["puntos"] = 2 if setup.get("puntos", 1) == 1 else 1
+        await query.answer()
+
+    elif action == "tz":
+        delta = int(parts[2])
+        setup["tz_offset"] = max(-12, min(14, setup.get("tz_offset", 0) + delta))
+        await query.answer()
+
+    elif action == "confirmar":
+        if not setup.get("hora_inicio"):
+            err = ("⚠️ Debes configurar la hora de inicio primero."
+                   if lang == "es" else "⚠️ You must set the start time first.")
+            await query.answer(err, show_alert=True)
+            return
+        tarea_prev = ctx.bot_data.pop(f"programa_tarea_{chat_key}", None)
+        if tarea_prev:
+            tarea_prev.cancel()
+        cancelar_programas_db(chat_key)
+        chat_id   = update.effective_chat.id
+        thread_id = get_thread_id(chat_key)
+        hora_ts   = setup["hora_inicio"]
+        puntos    = setup.get("puntos", 1)
+        tz        = setup.get("tz_offset", 0)
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO programacion (chat_key, chat_id, thread_id, hora_inicio, puntos_victoria, tz_offset, estado) "
+                "VALUES (?,?,?,?,?,?,'pendiente')",
+                (chat_key, chat_id, thread_id, hora_ts, puntos, tz)
+            )
+            prog_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        now_ts    = int(datetime.now(_tz.utc).timestamp())
+        restantes = max(0, hora_ts - now_ts)
+        texto_cd  = _build_countdown_text(chat_key, hora_ts, puntos, tz, restantes)
+        cancel_btn = "❌ Cancelar partida" if lang == "es" else "❌ Cancel game"
+        kbd_cd     = [[InlineKeyboardButton(cancel_btn, callback_data="programa:cancelar_prog")]]
+        msg_cd = await ctx.bot.send_message(
+            chat_id, texto_cd, parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(kbd_cd), message_thread_id=thread_id
+        )
+        with get_conn() as conn:
+            conn.execute("UPDATE programacion SET mensaje_id=? WHERE id=?", (msg_cd.message_id, prog_id))
+        tarea = asyncio.create_task(
+            _task_programa_countdown(chat_key, prog_id, ctx.bot, ctx.bot_data)
+        )
+        ctx.bot_data[f"programa_tarea_{chat_key}"] = tarea
+        ctx.bot_data.pop(f"programa_setup_{chat_key}", None)
+        return
+
+    elif action == "cancelar":
+        ctx.bot_data.pop(f"programa_setup_{chat_key}", None)
+        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    text, keyboard = _build_programa_setup_text(chat_key, setup)
+    try:
+        await query.message.edit_text(
+            text, parse_mode="MarkdownV2", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception:
+        pass
+
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
@@ -1868,9 +2269,22 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not partida or partida[2] != "esperando":
         await query.answer(t(chat_key, "no_partida_espera"), show_alert=True)
         return
-    if partida[8] != user.id:
+    if partida[8] != user.id and partida[8] != 0:
+        # partida[8]==0 → creada por bot (programada): cualquier admin puede iniciar
         await query.answer(t(chat_key, "solo_creador_iniciar"), show_alert=True)
         return
+    if partida[8] == 0:
+        # Partida programada: asignar creador al primer admin que la inicie
+        try:
+            member   = await update.effective_chat.get_member(user.id)
+            es_admin = member.status in ("administrator", "creator")
+        except Exception:
+            es_admin = False
+        if not es_admin and not (BOT_OWNER_ID and user.id == BOT_OWNER_ID):
+            await query.answer(t(chat_key, "solo_creador_iniciar"), show_alert=True)
+            return
+        with get_conn() as conn:
+            conn.execute("UPDATE partidas SET creador_id=? WHERE chat_key=?", (user.id, chat_key))
 
     jugadores = get_jugadores_activos(chat_key)
     if len(jugadores) < 3:
@@ -2690,6 +3104,41 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     texto = update.message.text.strip()
 
+    # ── Captura de hora para /program ──────────────────────────
+    setup = ctx.bot_data.get(f"programa_setup_{chat_key}")
+    if setup and setup.get("esperando_hora") and user.id == setup.get("admin_id"):
+        import re as _re
+        if _re.match(r"^\d{1,2}:\d{2}$", texto):
+            hora_ts = _parse_hora(texto, setup.get("tz_offset", 0))
+            if hora_ts:
+                setup["hora_inicio"]   = hora_ts
+                setup["esperando_hora"] = False
+                text, keyboard = _build_programa_setup_text(chat_key, setup)
+                setup_msg_id = setup.get("mensaje_setup_id")
+                if setup_msg_id:
+                    try:
+                        await ctx.bot.edit_message_text(
+                            text, chat_id=update.effective_chat.id,
+                            message_id=setup_msg_id, parse_mode="MarkdownV2",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        await update.message.delete()
+                        return
+                    except Exception:
+                        pass
+                await update.message.reply_text(
+                    text, parse_mode="MarkdownV2",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+            else:
+                lang = get_idioma(chat_key)
+                err  = ("⚠️ Hora inválida\\. Usa formato `HH:MM` \\(ej: `20:00`\\)"
+                        if lang == "es" else
+                        "⚠️ Invalid time\\. Use format `HH:MM` \\(eg: `20:00`\\)")
+                await update.message.reply_text(err, parse_mode="MarkdownV2")
+                return
+
     partida = get_partida(chat_key)
     if not partida:
         return
@@ -2912,13 +3361,18 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         if tarea_adiv and tarea_adiv is not tarea_actual: tarea_adiv.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
+        multiplicador = ctx.bot_data.pop(f"multiplicador_{chat_key}", 1)
         for j in jugadores:
             if j[0] not in impostor_ids_set:
-                sumar_victoria(chat_key, j[0])
+                for _ in range(multiplicador):
+                    sumar_victoria(chat_key, j[0])
                 sumar_victoria_inocente(chat_key, j[0])
         for imp in impostores:
             sumar_derrota(chat_key, imp[0])
-        logger.info(f"[FIN_GRUPO] puntos sumados")
+        if multiplicador > 1:
+            logger.info(f"[FIN_GRUPO] puntos x{multiplicador} sumados")
+        else:
+            logger.info(f"[FIN_GRUPO] puntos sumados")
 
         with get_conn() as conn:
             row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
@@ -2969,13 +3423,18 @@ async def _fin_impostores_ganan(chat_key, ctx, partida, jugadores, impostores, e
         if tarea_adiv and tarea_adiv is not tarea_actual: tarea_adiv.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
+        multiplicador = ctx.bot_data.pop(f"multiplicador_{chat_key}", 1)
         for imp in impostores:
-            sumar_victoria(chat_key, imp[0])
+            for _ in range(multiplicador):
+                sumar_victoria(chat_key, imp[0])
             sumar_victoria_impostor(chat_key, imp[0])
         for j in jugadores:
             if j[0] not in impostor_ids_set:
                 sumar_derrota(chat_key, j[0])
-        logger.info(f"[FIN_IMPOSTORES] puntos sumados")
+        if multiplicador > 1:
+            logger.info(f"[FIN_IMPOSTORES] puntos x{multiplicador} sumados")
+        else:
+            logger.info(f"[FIN_IMPOSTORES] puntos sumados")
 
         with get_conn() as conn:
             row = conn.execute("SELECT chat_id FROM partidas WHERE chat_key=?", (chat_key,)).fetchone()
@@ -3754,6 +4213,37 @@ async def _limpiar_partidas_zombies(app):
     if zombies:
         logger.info(f"[ZOMBIE] {len(zombies)} partidas zombie limpiadas")
 
+    # Restaurar tareas de countdown para programas pendientes
+    pendientes = []
+    with get_conn() as conn:
+        pendientes = conn.execute(
+            "SELECT * FROM programacion WHERE estado='pendiente'"
+        ).fetchall()
+    now_ts = int(datetime.now(_tz.utc).timestamp())
+    for prog in pendientes:
+        prog_id   = prog[0]
+        chat_key_ = prog[1]
+        chat_id_  = prog[2]
+        thread_id_= prog[3]
+        hora_ts_  = prog[4]
+        puntos_   = prog[5]
+        tz_       = prog[6] if prog[6] is not None else 0
+        msg_id_   = prog[7]
+        if hora_ts_ <= now_ts:
+            # Pasó mientras el bot estaba caído → iniciar ahora
+            with get_conn() as conn:
+                conn.execute("UPDATE programacion SET estado='activa' WHERE id=?", (prog_id,))
+            asyncio.create_task(
+                _iniciar_partida_programada(chat_key_, chat_id_, thread_id_, puntos_, tz_, msg_id_, app.bot, app.bot_data)
+            )
+            logger.info(f"[PROGRAMA] Iniciando programa atrasado {chat_key_}")
+        else:
+            tarea = asyncio.create_task(
+                _task_programa_countdown(chat_key_, prog_id, app.bot, app.bot_data)
+            )
+            app.bot_data[f"programa_tarea_{chat_key_}"] = tarea
+            logger.info(f"[PROGRAMA] Countdown restaurado {chat_key_} ({len(pendientes)} programas)")
+
 
 def main():
     init_db()
@@ -3770,6 +4260,7 @@ def main():
     app.add_handler(CommandHandler("resetimpostor", cmd_resetimpostor))
     app.add_handler(CommandHandler("resetroles",    cmd_resetroles))
     app.add_handler(CommandHandler("language",        cmd_idioma))
+    app.add_handler(CommandHandler("program",             cmd_program))
     app.add_handler(CommandHandler("rivalidad",          cmd_rivalidad))
     app.add_handler(CommandHandler("all",               cmd_all))
     app.add_handler(CommandHandler("roles",             cmd_roles))
@@ -3785,6 +4276,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_abrir_votar,     pattern="^abrir_votar$"))
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
+    app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
     app.add_handler(CallbackQueryHandler(btn_idioma,          pattern="^idioma:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
     app.add_error_handler(error_handler)
