@@ -4231,22 +4231,35 @@ async def cmd_puntaje(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     user     = update.effective_user
-    chat     = update.effective_chat
 
     if not (BOT_OWNER_ID and user.id == BOT_OWNER_ID):
         await update.message.reply_text(t(chat_key, "resetjugador_solo_admin"))
         return
 
-    if not ctx.args:
-        await update.message.reply_text(t(chat_key, "resetjugador_uso"), parse_mode="MarkdownV2")
+    # Sin argumentos → listar todos los jugadores del grupo
+    if not ctx.args and not (update.message.entities and
+            any(e.type in ("mention","text_mention") for e in update.message.entities)):
+        with get_conn() as conn:
+            jugadores = conn.execute(
+                "SELECT user_id, username FROM jugadores WHERE chat_key=? "
+                "AND (victorias>0 OR derrotas>0 OR veces_impostor>0) ORDER BY username",
+                (chat_key,)
+            ).fetchall()
+        if not jugadores:
+            await update.message.reply_text("📭 No hay jugadores con estadísticas en este grupo.")
+            return
+        lista = "\n".join(f"  • {j[1]} (`{j[0]}`)" for j in jugadores)
+        await update.message.reply_text(
+            f"Jugadores en el ranking:\n\n{lista}\n\n"
+            f"Usa `/resetjugador ID` con el número de ID para resetear.",
+            parse_mode="Markdown"
+        )
         return
-
-    busqueda = " ".join(ctx.args).strip().lstrip("@")
 
     target_id   = None
     target_name = None
 
-    # 1. text_mention: mención de usuario sin @username (ej. nombre clicable)
+    # 1. text_mention: clic en nombre sin @username
     if update.message.entities:
         for e in update.message.entities:
             if e.type == "text_mention" and e.user:
@@ -4254,26 +4267,26 @@ async def cmd_resetjugador(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 target_name = e.user.first_name
                 break
 
-    # 2. @username normal → buscar en DB por username de Telegram
-    if target_id is None:
+    busqueda = " ".join(ctx.args).strip().lstrip("@") if ctx.args else ""
+
+    # 2. Puede ser un user_id numérico directo
+    if target_id is None and busqueda.isdigit():
+        target_id = int(busqueda)
         with get_conn() as conn:
-            # Buscar por Telegram @username (campo username puede ser first_name o @user)
             row = conn.execute(
-                "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
-                (chat_key, busqueda)
+                "SELECT username FROM jugadores WHERE chat_key=? AND user_id=?",
+                (chat_key, target_id)
             ).fetchone()
-            # Si no encontró, buscar en partida_jugadores también
-            if not row:
-                row = conn.execute(
-                    "SELECT user_id, username FROM partida_jugadores WHERE chat_key=? AND LOWER(username)=LOWER(?)",
-                    (chat_key, busqueda)
-                ).fetchone()
-            # Búsqueda parcial como último recurso
-            if not row:
-                row = conn.execute(
-                    "SELECT user_id, username FROM jugadores WHERE chat_key=? AND LOWER(username) LIKE LOWER(?)",
-                    (chat_key, f"%{busqueda}%")
-                ).fetchone()
+        target_name = row[0] if row else str(target_id)
+
+    # 3. Buscar por nombre (coincidencia exacta o parcial)
+    if target_id is None and busqueda:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username FROM jugadores WHERE chat_key=? "
+                "AND LOWER(username) LIKE LOWER(?) ORDER BY victorias DESC LIMIT 1",
+                (chat_key, f"%{busqueda}%")
+            ).fetchone()
         if row:
             target_id, target_name = row[0], row[1]
 
