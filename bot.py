@@ -1941,7 +1941,10 @@ TIMEOUT_LOBBY_SEGUNDOS = 120  # 2 minutos
 
 async def _timeout_lobby_programado(chat_key: str, chat_id: int, thread_id,
                                      mensaje_id, bot, bot_data: dict):
-    """Cancela el lobby automáticamente si nadie lo inicia en 2 minutos."""
+    """Al cumplirse 2 minutos sin iniciar:
+    - Con ≥3 jugadores → inicia automáticamente (el primer jugador que se unió queda como creador)
+    - Con <3 jugadores → cancela automáticamente
+    """
     try:
         await asyncio.sleep(TIMEOUT_LOBBY_SEGUNDOS)
 
@@ -1949,46 +1952,159 @@ async def _timeout_lobby_programado(chat_key: str, chat_id: int, thread_id,
         if not partida or partida[2] != "esperando":
             return  # Ya se inició o canceló por otro medio
 
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE partidas SET estado='terminada' WHERE chat_key=? AND estado='esperando'",
-                (chat_key,)
-            )
-        bot_data.pop(f"multiplicador_{chat_key}", None)
-
+        jugadores = get_jugadores_activos(chat_key)
         lang = get_idioma(chat_key)
-        if lang == "es":
-            texto_exp = (
-                "⏰ *Partida expirada*\n\n"
-                "Nadie inició la partida programada en 2 minutos\\. "
-                "Fue cancelada automáticamente\\."
-            )
-        else:
-            texto_exp = (
-                "⏰ *Game expired*\n\n"
-                "Nobody started the scheduled game within 2 minutes\\. "
-                "It was automatically cancelled\\."
-            )
 
-        if mensaje_id:
-            try:
-                await bot.edit_message_text(
-                    texto_exp, chat_id=chat_id, message_id=mensaje_id,
-                    parse_mode="MarkdownV2"
+        # ── Menos de 3 jugadores → cancelar ──────────────────────
+        if len(jugadores) < 3:
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE partidas SET estado='terminada' WHERE chat_key=? AND estado='esperando'",
+                    (chat_key,)
                 )
-            except Exception:
+            bot_data.pop(f"multiplicador_{chat_key}", None)
+
+            if lang == "es":
+                texto_exp = (
+                    "⏰ *Partida expirada*\n\n"
+                    f"Solo había *{len(jugadores)}* jugador{'es' if len(jugadores) != 1 else ''} "
+                    "y la partida necesita al menos 3\\. "
+                    "Fue cancelada automáticamente\\."
+                )
+            else:
+                texto_exp = (
+                    "⏰ *Game expired*\n\n"
+                    f"Only *{len(jugadores)}* player{'s' if len(jugadores) != 1 else ''} "
+                    "joined and the game needs at least 3\\. "
+                    "It was automatically cancelled\\."
+                )
+
+            if mensaje_id:
+                try:
+                    await bot.edit_message_text(
+                        texto_exp, chat_id=chat_id, message_id=mensaje_id,
+                        parse_mode="MarkdownV2"
+                    )
+                except Exception:
+                    await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
+                                           message_thread_id=thread_id)
+            else:
                 await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
                                        message_thread_id=thread_id)
-        else:
-            await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
-                                   message_thread_id=thread_id)
 
-        logger.info(f"[PROGRAMA] Lobby expirado por inactividad en {chat_key}")
+            logger.info(f"[TIMEOUT] Lobby cancelado por pocos jugadores ({len(jugadores)}) en {chat_key}")
+            return
+
+        # ── 3 o más jugadores → iniciar automáticamente ──────────
+        # El creador pasa a ser el primer jugador que se unió
+        primer_jugador = jugadores[0]
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE partidas SET creador_id=? WHERE chat_key=?",
+                (primer_jugador[0], chat_key)
+            )
+
+        if lang == "es":
+            aviso_auto = (
+                f"⏰ *¡Tiempo\\!* La partida inicia automáticamente con *{len(jugadores)}* jugadores\\.\n"
+                f"👑 *{esc(primer_jugador[1])}* es el creador y puede abrir la votación\\."
+            )
+        else:
+            aviso_auto = (
+                f"⏰ *Time's up\\!* Game starts automatically with *{len(jugadores)}* players\\.\n"
+                f"👑 *{esc(primer_jugador[1])}* is the creator and can open voting\\."
+            )
+
+        await bot.send_message(chat_id, aviso_auto, parse_mode="MarkdownV2",
+                               message_thread_id=thread_id)
+
+        # Elegir categoría aleatoria y lanzar la partida
+        categorias_disp = cats(chat_key)
+        categoria = random.choice(list(categorias_disp.keys()))
+        palabra   = elegir_palabra(chat_key, categoria, categorias_disp[categoria])
+
+        num_impostores   = calcular_num_impostores(len(jugadores))
+        impostores       = random.sample(jugadores, num_impostores)
+        impostor_ids     = ",".join(str(i[0]) for i in impostores)
+        impostor_ids_set = set(i[0] for i in impostores)
+        vivos_ids        = ",".join(str(j[0]) for j in jugadores)
+
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE partidas SET estado='jugando', categoria=?, palabra=?, impostor_ids=?, vivos=? WHERE chat_key=?",
+                (categoria, palabra, impostor_ids, vivos_ids, chat_key)
+            )
+
+        pistas_raw = generar_pistas(palabra, categoria, chat_key)
+        pistas     = "\n".join(esc(l) for l in pistas_raw.splitlines())
+
+        lang_cat = esc(categoria)
+        if lang == "es":
+            texto_cat = f"Categoría: *{lang_cat}*"
+        else:
+            texto_cat = f"Category: *{lang_cat}*"
+
+        fallidos = []
+        for uid, uname in jugadores:
+            try:
+                if uid in impostor_ids_set:
+                    msg_privado = t(chat_key, "eres_impostor").format(cat=esc(categoria))
+                    sumar_vez_impostor(chat_key, uid)
+                else:
+                    msg_privado = t(chat_key, "eres_inocente").format(
+                        palabra=esc(palabra), cat=esc(categoria), pistas=pistas
+                    )
+                    sumar_vez_inocente(chat_key, uid)
+                await bot.send_message(uid, msg_privado, parse_mode="MarkdownV2")
+            except Exception:
+                fallidos.append(uname)
+
+        orden = list(jugadores)
+        random.shuffle(orden)
+        turno_lista = "\n".join(f"  {i+1}\\. {esc(j[1])}" for i, j in enumerate(orden))
+
+        bot_data[f"turno_{chat_key}"] = {
+            "orden": [j[0] for j in orden],
+            "index": 0,
+            "ya_dieron_pista": set(),
+            "ronda_pistas": 1,
+            "jugadores_iniciales": len(jugadores),
+            "intentos_pista": {}
+        }
+
+        aviso_rondas = (
+            t(chat_key, "aviso_2rondas") if len(jugadores) == 3
+            else t(chat_key, "aviso_votar")
+        )
+        aviso_fallidos = ""
+        if fallidos:
+            aviso_fallidos = t(chat_key, "aviso_fallidos").format(
+                nombres=", ".join(esc(f) for f in fallidos)
+            )
+
+        await bot.send_message(
+            chat_id,
+            t(chat_key, "partida_comienza").format(
+                cat=texto_cat, orden=turno_lista, aviso_rondas=aviso_rondas
+            ) + aviso_fallidos,
+            parse_mode="MarkdownV2",
+            message_thread_id=thread_id
+        )
+
+        primer = orden[0]
+        # Crear un contexto mínimo para _anunciar_turno
+        class _FakeCtx:
+            def __init__(self, b, bd):
+                self.bot = b
+                self.bot_data = bd
+        fake_ctx = _FakeCtx(bot, bot_data)
+        await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, fake_ctx)
+        logger.info(f"[TIMEOUT] Partida auto-iniciada con {len(jugadores)} jugadores en {chat_key}")
 
     except asyncio.CancelledError:
-        pass  # Se inició la partida a tiempo
+        pass  # Se inició o canceló manualmente a tiempo
     except Exception as e:
-        logger.error(f"[PROGRAMA] Error en timeout lobby {chat_key}: {e}", exc_info=True)
+        logger.error(f"[TIMEOUT] Error en timeout lobby {chat_key}: {e}", exc_info=True)
 
 
 
