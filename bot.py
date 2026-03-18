@@ -3452,7 +3452,9 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text("⚠️ Formato inválido. Usa HH:MM (ej: 20:00)")
                     return
             else:
-                gi_setup_priv[campo_gi] = texto
+                # "idol" se almacena como "idol_name" para coincidir con gi_build_setup_text
+                key_gi = "idol_name" if campo_gi == "idol" else campo_gi
+                gi_setup_priv[key_gi] = texto
             try:
                 await update.message.delete()
             except Exception:
