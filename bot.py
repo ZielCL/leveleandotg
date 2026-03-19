@@ -1319,6 +1319,7 @@ def normalizar(texto: str) -> str:
     texto = texto.lower().strip()
     texto = unicodedata.normalize("NFD", texto)
     texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
+    texto = texto.replace(" ", "")  # ignorar espacios accidentales
     return texto
 
 def esc(text):
