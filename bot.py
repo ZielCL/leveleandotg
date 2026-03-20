@@ -4989,7 +4989,7 @@ GI_TEXTOS = {
             "⏰ Termina: *{fin}*\n"
             "🎯 Puntos: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Escribe el nombre para ganar\\\\._"
+            "_Escribe el nombre para ganar_"
         ),
         "gi_score_vacio":       "📊 No hay puntos registrados aún\\.",
         "gi_score_titulo":      "🏆 *Marcador \\— Adivina la Idol:*\n\n{tabla}",
@@ -5033,7 +5033,7 @@ GI_TEXTOS = {
             "⏰ Ends: *{fin}*\n"
             "🎯 Points: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Type the name to win\\\\._"
+            "_Type the name to win_"
         ),
         "gi_score_vacio":       "📊 No points registered yet\\.",
         "gi_score_titulo":      "🏆 *Scoreboard \\— Guess the Idol:*\n\n{tabla}",
