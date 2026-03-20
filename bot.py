@@ -2064,18 +2064,17 @@ async def _timeout_lobby_programado(chat_key: str, chat_id: int, thread_id,
                     "It was automatically cancelled\\."
                 )
 
+            # Enviar aviso de expiración
+            await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
+                                   message_thread_id=thread_id)
+            # Intentar quitar botones del mensaje del lobby original
             if mensaje_id:
                 try:
-                    await bot.edit_message_text(
-                        texto_exp, chat_id=chat_id, message_id=mensaje_id,
-                        parse_mode="MarkdownV2"
+                    await bot.edit_message_reply_markup(
+                        chat_id=chat_id, message_id=mensaje_id, reply_markup=None
                     )
                 except Exception:
-                    await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
-                                           message_thread_id=thread_id)
-            else:
-                await bot.send_message(chat_id, texto_exp, parse_mode="MarkdownV2",
-                                       message_thread_id=thread_id)
+                    pass
 
             logger.info(f"[TIMEOUT] Lobby cancelado por pocos jugadores ({len(jugadores)}) en {chat_key}")
             return
@@ -2502,8 +2501,13 @@ async def btn_unirse(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # (Telegram solo permite una llamada a answer() por callback)
     partida = get_partida(chat_key)
     logger.info(f"[btn_unirse] user={user.id} partida_estado={partida[2] if partida else None} activos={[j[0] for j in get_jugadores_activos(chat_key)]}")
-    if not partida:
+    if not partida or partida[2] == "terminada":
         await query.answer(t(chat_key, "sin_partida"), show_alert=True)
+        # Intentar quitar los botones del mensaje expirado
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
     if partida[2] != "esperando":
         await query.answer(t(chat_key, "partida_en_curso"), show_alert=True)
@@ -4510,7 +4514,13 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not partida or partida[2] == "terminada":
         await update.message.reply_text(t(chat_key, "sin_partida_activa"))
         return
-    if partida[8] != user.id:
+    es_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
+    try:
+        member   = await update.effective_chat.get_member(user.id)
+        es_admin = member.status in ("administrator", "creator")
+    except Exception:
+        es_admin = False
+    if partida[8] != user.id and not es_admin and not es_owner:
         await update.message.reply_text(t(chat_key, "solo_creador_cancelar"))
         return
 
