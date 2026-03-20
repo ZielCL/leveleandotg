@@ -447,6 +447,11 @@ TEXTOS = {
         "pocos_jugadores":          "⚠️ Necesitas al menos 3 jugadores. Ahora hay {n}.",
         "elige_categoria":          "🗂️ *Elige una categoría:*",
         "btn_random":               "🎲 ¡Sorpréndeme! (Random)",
+        "config_impostores":        "⚙️ *Configurar impostores*\n\nJugadores: *{n}*\nImpostores: *{imp}*\n\n_El creador puede elegir cuántos impostores habrá\\._",
+        "btn_imp_menos":            "➖",
+        "btn_imp_mas":              "➕",
+        "btn_imp_confirmar":        "✅ Confirmar y elegir categoría",
+
         "solo_creador_categoria":   "Solo el creador puede elegir la categoría.",
         "cat_sorpresa_grupo":       "🎲 *¡Categoría sorpresa\\!*",
         "cat_confirmacion":         "✅ Categoría: *{cat}*",
@@ -644,6 +649,11 @@ TEXTOS = {
         "pocos_jugadores":          "⚠️ You need at least 3 players. There are {n} now.",
         "elige_categoria":          "🗂️ *Choose a category:*",
         "btn_random":               "🎲 Surprise me! (Random)",
+        "config_impostores":        "⚙️ *Configure impostors*\n\nPlayers: *{n}*\nImpostors: *{imp}*\n\n_The creator can choose how many impostors there will be\\._",
+        "btn_imp_menos":            "➖",
+        "btn_imp_mas":              "➕",
+        "btn_imp_confirmar":        "✅ Confirm and choose category",
+
         "solo_creador_categoria":   "Only the creator can choose the category.",
         "cat_sorpresa_grupo":       "🎲 *Surprise category\\!*",
         "cat_confirmacion":         "✅ Category: *{cat}*",
@@ -1564,6 +1574,11 @@ def init_db():
             pass  # Ya existe
     try:
         conn.execute("ALTER TABLE config ADD COLUMN timezone_offset INTEGER DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE gi_grupos ADD COLUMN gi_activo INTEGER DEFAULT 1")
         conn.commit()
     except Exception:
         pass
@@ -2630,10 +2645,22 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer()
-    # Cancelar el timeout de lobby si venía de una partida programada
+    # Cancelar el timeout de lobby
     tarea_timeout = ctx.bot_data.pop(f"timeout_lobby_{chat_key}", None)
     if tarea_timeout:
         tarea_timeout.cancel()
+
+    es_manual = (partida[8] != 0)  # 0 = partida programada
+
+    # Si hay 5+ jugadores y es inicio manual → pantalla de config de impostores
+    if len(jugadores) >= 5 and es_manual:
+        max_imp = min(3, len(jugadores) - 2)  # máx impostores (siempre ≥2 inocentes)
+        imp_default = calcular_num_impostores(len(jugadores))
+        ctx.bot_data[f"imp_config_{chat_key}"] = {"imp": imp_default, "max": max_imp, "n": len(jugadores)}
+        await _mostrar_config_impostores(chat_key, jugadores, query.message, ctx)
+        return
+
+    # Si no → ir directo a elegir categoría
     categorias = cats(chat_key)
     keyboard = [
         [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
@@ -2645,6 +2672,89 @@ async def btn_iniciar_partida(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def _mostrar_config_impostores(chat_key, jugadores, message, ctx):
+    """Muestra la pantalla de configuración de número de impostores."""
+    cfg = ctx.bot_data.get(f"imp_config_{chat_key}", {})
+    imp = cfg.get("imp", 1)
+    mx  = cfg.get("max", 3)
+    n   = cfg.get("n", len(jugadores))
+
+    texto = t(chat_key, "config_impostores").format(n=n, imp=imp)
+    keyboard = [
+        [
+            InlineKeyboardButton(t(chat_key, "btn_imp_menos"), callback_data="imp_config:menos"),
+            InlineKeyboardButton(f"{'👤' * imp} {imp}", callback_data="imp_config:info"),
+            InlineKeyboardButton(t(chat_key, "btn_imp_mas"),  callback_data="imp_config:mas"),
+        ],
+        [InlineKeyboardButton(t(chat_key, "btn_imp_confirmar"), callback_data="imp_config:confirmar")],
+    ]
+    await message.reply_text(texto, parse_mode="MarkdownV2",
+                             reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def btn_imp_config(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Maneja los botones de configuración de impostores."""
+    query    = update.callback_query
+    chat_key = get_chat_key(update)
+    user     = query.from_user
+    action   = query.data.split(":")[1]
+
+    partida = get_partida(chat_key)
+    if not partida or partida[8] != user.id:
+        await query.answer(t(chat_key, "solo_creador_iniciar"), show_alert=True)
+        return
+
+    cfg = ctx.bot_data.get(f"imp_config_{chat_key}")
+    if not cfg:
+        await query.answer()
+        return
+
+    if action == "menos":
+        cfg["imp"] = max(1, cfg["imp"] - 1)
+        await query.answer()
+    elif action == "mas":
+        cfg["imp"] = min(cfg["max"], cfg["imp"] + 1)
+        await query.answer()
+    elif action == "info":
+        await query.answer()
+        return
+    elif action == "confirmar":
+        # Guardar elección y pasar a categoría
+        ctx.bot_data[f"num_impostores_{chat_key}"] = cfg["imp"]
+        ctx.bot_data.pop(f"imp_config_{chat_key}", None)
+        await query.answer()
+
+        categorias = cats(chat_key)
+        keyboard = [
+            [InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
+            for cat in categorias
+        ]
+        keyboard.append([InlineKeyboardButton(t(chat_key, "btn_random"), callback_data="cat:RANDOM")])
+        await query.message.reply_text(
+            t(chat_key, "elige_categoria"),
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # Redibujar botones con el nuevo valor
+    imp = cfg["imp"]
+    texto = t(chat_key, "config_impostores").format(n=cfg["n"], imp=imp)
+    keyboard = [
+        [
+            InlineKeyboardButton(t(chat_key, "btn_imp_menos"), callback_data="imp_config:menos"),
+            InlineKeyboardButton(f"{'👤' * imp} {imp}", callback_data="imp_config:info"),
+            InlineKeyboardButton(t(chat_key, "btn_imp_mas"),  callback_data="imp_config:mas"),
+        ],
+        [InlineKeyboardButton(t(chat_key, "btn_imp_confirmar"), callback_data="imp_config:confirmar")],
+    ]
+    try:
+        await query.message.edit_text(texto, parse_mode="MarkdownV2",
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        pass
 
 
 async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2693,7 +2803,11 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         palabra = elegir_palabra(chat_key, categoria, categorias[categoria])
         jugadores = get_jugadores_activos(chat_key)
-        num_impostores = calcular_num_impostores(len(jugadores))
+        # Usar número configurado manualmente si existe
+        num_impostores = ctx.bot_data.pop(f"num_impostores_{chat_key}", None)
+        if num_impostores is None:
+            num_impostores = calcular_num_impostores(len(jugadores))
+        num_impostores = max(1, min(num_impostores, len(jugadores) - 2))
         impostores = random.sample(jugadores, num_impostores)
         impostor_ids = ",".join(str(i[0]) for i in impostores)
         impostor_ids_set = set(i[0] for i in impostores)
@@ -4711,7 +4825,7 @@ async def set_commands(app):
 async def _limpiar_partidas_zombies(app):
     """Al arrancar, marca como terminadas las partidas que quedaron activas
     tras un reinicio inesperado del bot. Notifica en el grupo."""
-    estados_activos = ("jugando", "adivinando", "iniciando")
+    estados_activos = ("jugando", "adivinando", "iniciando", "esperando")
     with get_conn() as conn:
         zombies = conn.execute(
             "SELECT chat_key, chat_id FROM partidas WHERE estado IN ({})".format(
@@ -4731,9 +4845,9 @@ async def _limpiar_partidas_zombies(app):
             thread_id = get_thread_id(chat_key)
             lang = get_idioma(chat_key)
             if lang == "es":
-                msg = "⚠️ El bot se reinició y la partida en curso fue cancelada\\.\n\n_Usa /playimpostor para comenzar una nueva\\._"
+                msg = "⚠️ El bot se reinició y la partida fue cancelada\\.\n\n_Usa /playimpostor para comenzar una nueva\\._"
             else:
-                msg = "⚠️ The bot restarted and the active game was cancelled\\.\n\n_Use /playimpostor to start a new one\\._"
+                msg = "⚠️ The bot restarted and the game was cancelled\\.\n\n_Use /playimpostor to start a new one\\._"
             await app.bot.send_message(chat_id, msg,
                                        parse_mode="MarkdownV2",
                                        message_thread_id=thread_id)
@@ -4848,7 +4962,7 @@ GI_TEXTOS = {
             "⏰ Termina: *{fin}*\n"
             "🎯 Puntos: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Escribe el nombre para ganar\\._"
+            "_Escribe el nombre para ganar\\\\._"
         ),
         "gi_score_vacio":       "📊 No hay puntos registrados aún\\.",
         "gi_score_titulo":      "🏆 *Marcador \\— Adivina la Idol:*\n\n{tabla}",
@@ -4892,7 +5006,7 @@ GI_TEXTOS = {
             "⏰ Ends: *{fin}*\n"
             "🎯 Points: *{puntos}*\n"
             "{pistas}\n\n"
-            "_Type the name to win\\._"
+            "_Type the name to win\\\\._"
         ),
         "gi_score_vacio":       "📊 No points registered yet\\.",
         "gi_score_titulo":      "🏆 *Scoreboard \\— Guess the Idol:*\n\n{tabla}",
@@ -4903,6 +5017,26 @@ GI_TEXTOS = {
 }
 
 # ── DB helpers GI ─────────────────────────────────────────────
+
+def gi_grupo_activo(chat_id: int) -> bool:
+    """Retorna True si el juego GI está activo en este grupo."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT gi_activo FROM gi_grupos WHERE chat_id=?", (chat_id,)
+        ).fetchone()
+    return row[0] != 0 if row else True
+
+
+def gi_toggle_grupo(chat_id: int) -> bool:
+    """Alterna el estado GI del grupo. Retorna el nuevo estado (True=activo)."""
+    actual = gi_grupo_activo(chat_id)
+    nuevo  = 0 if actual else 1
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE gi_grupos SET gi_activo=? WHERE chat_id=?", (nuevo, chat_id)
+        )
+    return bool(nuevo)
+
 
 def gi_registrar_grupo(chat_id: int, chat_title: str, chat_key: str):
     try:
@@ -5135,6 +5269,9 @@ async def _gi_countdown(prog_id: int, bot, bot_data: dict):
         for grp in grupos:
             chat_id  = grp[0]
             chat_key = grp[2]
+            if not gi_grupo_activo(chat_id):
+                logger.info(f"[IDOL] Grupo {chat_key} con GI desactivado, saltando")
+                continue
             lang = get_idioma(chat_key)
             try:
                 caption  = gi_build_ronda_caption(chat_key, prog[8], 5, 0, hints, prog[9])
@@ -5334,7 +5471,12 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        kbd = [[InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}")]]
+        gi_on = gi_grupo_activo(chat_id)
+        toggle_lbl = "🎤 Desactivar Idol" if gi_on else "✅ Activar Idol"
+        kbd = [
+            [InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}")],
+            [InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}")],
+        ]
         if link:
             kbd[0].append(InlineKeyboardButton("🔗 Ir al grupo", url=link))
 
@@ -5514,6 +5656,39 @@ async def owner_btn_msg_grupo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     linea2 = "_Escribe en el chat y se enviar\u00e1 directamente\\._\\n\\n"
     linea3 = "Usa /cancelarmsg para cancelar\\."
     await query.message.reply_text(linea1 + linea2 + linea3, parse_mode="MarkdownV2")
+
+
+async def gi_btn_toggle_grupo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Activa/desactiva Adivina la Idol en un grupo específico."""
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("Solo el owner.", show_alert=True)
+        return
+
+    chat_id_tog = int(query.data.split(":")[2])
+    nuevo_estado = gi_toggle_grupo(chat_id_tog)
+
+    estado_txt = "✅ activado" if nuevo_estado else "🔇 desactivado"
+    await query.answer(f"Adivina la Idol {estado_txt} en ese grupo.", show_alert=True)
+
+    # Actualizar el botón en el mensaje
+    try:
+        markup = query.message.reply_markup
+        if markup:
+            new_rows = []
+            for row in markup.inline_keyboard:
+                new_row = []
+                for btn in row:
+                    if btn.callback_data and btn.callback_data == query.data:
+                        lbl = "🎤 Desactivar Idol" if nuevo_estado else "✅ Activar Idol"
+                        new_row.append(InlineKeyboardButton(lbl, callback_data=query.data))
+                    else:
+                        new_row.append(btn)
+                new_rows.append(new_row)
+            await query.message.edit_reply_markup(InlineKeyboardMarkup(new_rows))
+    except Exception:
+        pass
 
 
 async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -5999,6 +6174,8 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
     app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog, pattern="^gi:cancelarprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_editprog,     pattern="^gi:editprog:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_toggle_grupo, pattern="^gi:toggle:"))
+    app.add_handler(CallbackQueryHandler(btn_imp_config,      pattern="^imp_config:"))
     app.add_handler(CallbackQueryHandler(owner_btn_msg_grupo, pattern="^owner:msg:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
