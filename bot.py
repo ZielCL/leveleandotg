@@ -5861,11 +5861,10 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cap = gi_t(lang_preview, "gi_ronda_caption").format(
             fin=esc(fin_str), puntos=5, pistas=gi_t(lang_preview, "gi_sin_pistas")
         )
-        prev_txt = "👁 *Vista previa:*\n\n" if lang == "es" else "👁 *Preview:*\n\n"
         try:
             await query.message.reply_photo(
                 photo=setup["file_id"],
-                caption=prev_txt + cap,
+                caption=cap,
                 parse_mode="MarkdownV2"
             )
         except Exception as e:
