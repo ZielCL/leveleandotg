@@ -3451,6 +3451,22 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if chat and chat.type in ("group", "supergroup"):
         gi_registrar_grupo(chat.id, chat.title or "?", chat_key)
 
+    # ── Owner: enviar mensaje a grupo ────────────────────────
+    if chat and chat.type == "private" and user.id == BOT_OWNER_ID:
+        destino = ctx.bot_data.get(f"owner_msg_destino_{user.id}")
+        if destino and texto not in ("/cancelarmsg",):
+            ctx.bot_data.pop(f"owner_msg_destino_{user.id}", None)
+            try:
+                await ctx.bot.send_message(destino, texto)
+                await update.message.reply_text("✅ Mensaje enviado.")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error: {e}")
+            return
+        elif texto == "/cancelarmsg":
+            ctx.bot_data.pop(f"owner_msg_destino_{user.id}", None)
+            await update.message.reply_text("❌ Cancelado.")
+            return
+
     # ── Captura de texto para /idol setup (solo owner en privado) ──
     if chat and chat.type == "private" and user.id == BOT_OWNER_ID:
         gi_setup_priv = ctx.bot_data.get(f"gi_setup_{user.id}")
@@ -5281,15 +5297,42 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
         await update.message.reply_text("⚠️ Usa este comando en chat privado con el bot.")
         return
-    grupos = gi_get_grupos()
-    if not grupos:
-        await update.message.reply_text(gi_t("es", "gi_grupos_vacio"), parse_mode="MarkdownV2")
+
+    with get_conn() as conn:
+        gi_rows  = conn.execute(
+            "SELECT chat_id, chat_title FROM gi_grupos ORDER BY ultimo_msg DESC"
+        ).fetchall()
+        imp_rows = conn.execute(
+            "SELECT DISTINCT chat_id FROM partidas WHERE chat_id IS NOT NULL"
+        ).fetchall()
+
+    seen = {}
+    for chat_id, title in gi_rows:
+        seen[chat_id] = title or str(chat_id)
+    for (chat_id,) in imp_rows:
+        if chat_id and chat_id not in seen:
+            seen[chat_id] = str(chat_id)
+
+    if not seen:
+        await update.message.reply_text("📭 El bot no ha registrado ningún grupo aún.")
         return
-    lista = "\n".join(f"  {i+1}\\. *{esc(g[1])}* \\(`{g[0]}`\\)" for i, g in enumerate(grupos))
-    await update.message.reply_text(
-        f"📋 *Grupos registrados \\({len(grupos)}\\):*\n\n{lista}",
-        parse_mode="MarkdownV2"
-    )
+
+    grupos = sorted(seen.items(), key=lambda x: str(x[1]))
+
+    # Enviar cada grupo como mensaje con botón de acceso directo
+    await update.message.reply_text(f"📋 El bot está en {len(grupos)} grupo(s):")
+    for chat_id, title in grupos:
+        # t.me/c/CHATID/1 funciona para supergrupos (quitar el -100 del inicio)
+        link_id = str(chat_id).replace("-100", "")
+        link    = f"https://t.me/c/{link_id}/1"
+        kbd = [[InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}"),
+                InlineKeyboardButton("🔗 Ir al grupo", url=link)]]
+        caption = "*" + esc(title) + "*\n`" + str(chat_id) + "`"
+        await update.message.reply_text(
+            caption,
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(kbd)
+        )
 
 
 async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -5437,6 +5480,29 @@ async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
+
+
+async def owner_btn_msg_grupo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("Solo el owner.", show_alert=True)
+        return
+
+    chat_id_dest = int(query.data.split(":")[2])
+    ctx.bot_data[f"owner_msg_destino_{user.id}"] = chat_id_dest
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT chat_title FROM gi_grupos WHERE chat_id=?", (chat_id_dest,)
+        ).fetchone()
+    nombre_grupo = row[0] if row else str(chat_id_dest)
+
+    await query.answer()
+    linea1 = "\U0001f4dd Escribe el mensaje para *" + esc(nombre_grupo) + "*\\.\\n\\n"
+    linea2 = "_Escribe en el chat y se enviar\u00e1 directamente\\._\\n\\n"
+    linea3 = "Usa /cancelarmsg para cancelar\\."
+    await query.message.reply_text(linea1 + linea2 + linea3, parse_mode="MarkdownV2")
 
 
 async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -5909,6 +5975,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
     app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog, pattern="^gi:cancelarprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_editprog,     pattern="^gi:editprog:"))
+    app.add_handler(CallbackQueryHandler(owner_btn_msg_grupo, pattern="^owner:msg:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
