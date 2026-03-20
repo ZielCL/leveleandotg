@@ -5424,10 +5424,10 @@ async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ini_str = _formato_hora_local(ini_ts, tz or 0)
         fin_str = _formato_hora_local(fin_ts, tz or 0)
         lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
-        keyboard.append([InlineKeyboardButton(
-            f"❌ Cancelar: {idol}",
-            callback_data=f"gi:cancelarprog:{pid}"
-        )])
+        keyboard.append([
+            InlineKeyboardButton(f"✏️ Editar: {idol}", callback_data=f"gi:editprog:{pid}"),
+            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:cancelarprog:{pid}"),
+        ])
 
     texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
     try:
@@ -5437,6 +5437,66 @@ async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
+
+
+async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Carga una programación existente en el setup para editarla."""
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("⚠️ Solo el owner puede editar.", show_alert=True)
+        return
+
+    prog_id = int(query.data.split(":")[2])
+
+    with get_conn() as conn:
+        prog = conn.execute(
+            "SELECT * FROM gi_programacion WHERE id=? AND estado='pendiente'", (prog_id,)
+        ).fetchone()
+
+    if not prog:
+        await query.answer("Esta programación ya no está pendiente.", show_alert=True)
+        return
+
+    # prog: id(0) idol_name(1) file_id(2) file_id_reveal(3) hint1(4) hint2(5) hint3(6)
+    #       inicio_ts(7) fin_ts(8) tz_offset(9) estado(10)
+    lang = "es"
+    setup = {
+        "file_id":       prog[2],
+        "file_id_reveal":prog[3],
+        "idol_name":     prog[1],
+        "hint1":         prog[4],
+        "hint2":         prog[5],
+        "hint3":         prog[6],
+        "inicio_ts":     prog[7],
+        "fin_ts":        prog[8],
+        "tz_offset":     prog[9] or 0,
+        "esperando":     None,
+        "mensaje_id":    None,
+        "lang":          lang,
+        "editing_prog_id": prog_id,  # flag: estamos editando, no creando
+    }
+    ctx.bot_data[f"gi_setup_{user.id}"] = setup
+
+    await query.answer()
+    text     = gi_build_setup_text(setup, lang)
+    keyboard = gi_build_setup_keyboard(setup, lang)
+    try:
+        edit_header = "✏️ *Editando programación*\n\n"
+        await query.message.edit_text(
+            edit_header + text,
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        setup["mensaje_id"] = query.message.message_id
+    except Exception:
+        edit_header = "✏️ *Editando programación*\n\n"
+        msg = await query.message.reply_text(
+            edit_header + text,
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        setup["mensaje_id"] = msg.message_id
 
 
 async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -5526,14 +5586,30 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await query.answer(msg, show_alert=True)
             return
 
+        editing_id = setup.get("editing_prog_id")
         with get_conn() as conn:
-            conn.execute(
-                "INSERT INTO gi_programacion (idol_name,file_id,file_id_reveal,hint1,hint2,hint3,inicio_ts,fin_ts,tz_offset,estado) "
-                "VALUES (?,?,?,?,?,?,?,?,?,'pendiente')",
-                (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
-                 setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"], setup.get("tz_offset", 0))
-            )
-            prog_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            if editing_id:
+                # Edición: actualizar registro existente
+                conn.execute(
+                    "UPDATE gi_programacion SET idol_name=?,file_id=?,file_id_reveal=?,"
+                    "hint1=?,hint2=?,hint3=?,inicio_ts=?,fin_ts=?,tz_offset=?,estado='pendiente' WHERE id=?",
+                    (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
+                     setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"],
+                     setup.get("tz_offset", 0), editing_id)
+                )
+                prog_id = editing_id
+                # Cancelar countdown anterior
+                old_task = ctx.bot_data.pop(f"gi_countdown_{prog_id}", None)
+                if old_task:
+                    old_task.cancel()
+            else:
+                conn.execute(
+                    "INSERT INTO gi_programacion (idol_name,file_id,file_id_reveal,hint1,hint2,hint3,inicio_ts,fin_ts,tz_offset,estado) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,'pendiente')",
+                    (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
+                     setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"], setup.get("tz_offset", 0))
+                )
+                prog_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         await query.answer()
         try:
@@ -5779,10 +5855,10 @@ async def gi_cmd_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ini_str = _formato_hora_local(ini_ts, tz or 0)
         fin_str = _formato_hora_local(fin_ts, tz or 0)
         lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
-        keyboard.append([InlineKeyboardButton(
-            f"❌ Cancelar: {idol}",
-            callback_data=f"gi:cancelarprog:{pid}"
-        )])
+        keyboard.append([
+            InlineKeyboardButton(f"✏️ Editar: {idol}", callback_data=f"gi:editprog:{pid}"),
+            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:cancelarprog:{pid}"),
+        ])
 
     texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
     await update.message.reply_text(
@@ -5832,6 +5908,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
     app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog, pattern="^gi:cancelarprog:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_editprog,     pattern="^gi:editprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
