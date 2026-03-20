@@ -5318,15 +5318,26 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     grupos = sorted(seen.items(), key=lambda x: str(x[1]))
-
-    # Enviar cada grupo como mensaje con botón de acceso directo
     await update.message.reply_text(f"📋 El bot está en {len(grupos)} grupo(s):")
+
     for chat_id, title in grupos:
-        # t.me/c/CHATID/1 funciona para supergrupos (quitar el -100 del inicio)
-        link_id = str(chat_id).replace("-100", "")
-        link    = f"https://t.me/c/{link_id}/1"
-        kbd = [[InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}"),
-                InlineKeyboardButton("🔗 Ir al grupo", url=link)]]
+        # Intentar obtener el invite link real via API
+        link = None
+        try:
+            chat_obj = await ctx.bot.get_chat(chat_id)
+            # Si el grupo tiene username público, usar ese link
+            if getattr(chat_obj, "username", None):
+                link = f"https://t.me/{chat_obj.username}"
+            else:
+                # Intentar exportar invite link (requiere que el bot sea admin)
+                link = await ctx.bot.export_chat_invite_link(chat_id)
+        except Exception:
+            pass
+
+        kbd = [[InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}")]]
+        if link:
+            kbd[0].append(InlineKeyboardButton("🔗 Ir al grupo", url=link))
+
         caption = "*" + esc(title) + "*\n`" + str(chat_id) + "`"
         await update.message.reply_text(
             caption,
@@ -5933,10 +5944,23 @@ async def gi_cmd_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+async def _shutdown(app):
+    """Cancela tareas pendientes al apagar el bot limpiamente."""
+    current = asyncio.current_task()
+    tasks = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    logger.info(f"[SHUTDOWN] {len(tasks)} tareas canceladas")
+
+
 def main():
     init_db()
     _init_fonts()
-    app = Application.builder().token(TOKEN).post_init(_limpiar_partidas_zombies).build()
+
+    app = Application.builder().token(TOKEN).post_init(_limpiar_partidas_zombies).post_stop(_shutdown).build()
 
     app.add_handler(CommandHandler("start",         cmd_start))
     app.add_handler(CommandHandler("playimpostor", cmd_nueva))
