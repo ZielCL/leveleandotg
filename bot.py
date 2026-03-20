@@ -1581,6 +1581,12 @@ def init_db():
         conn.execute("ALTER TABLE gi_grupos ADD COLUMN gi_activo INTEGER DEFAULT 1")
         conn.commit()
     except Exception:
+        pass  # Ya existe
+    # Asegurar que grupos existentes con gi_activo=NULL queden como activos
+    try:
+        conn.execute("UPDATE gi_grupos SET gi_activo=1 WHERE gi_activo IS NULL")
+        conn.commit()
+    except Exception:
         pass
     conn.close()
 
@@ -5040,10 +5046,12 @@ GI_TEXTOS = {
 # ── DB helpers GI ─────────────────────────────────────────────
 
 def gi_grupo_activo(chat_id: int) -> bool:
-    """Retorna True si el juego GI está activo en este grupo."""
+    """Retorna True si el juego GI está activo en este grupo.
+    NULL se trata como activo (1) para grupos registrados antes del toggle.
+    """
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT gi_activo FROM gi_grupos WHERE chat_id=?", (chat_id,)
+            "SELECT COALESCE(gi_activo, 1) FROM gi_grupos WHERE chat_id=?", (chat_id,)
         ).fetchone()
     return row[0] != 0 if row else True
 
@@ -5053,8 +5061,14 @@ def gi_toggle_grupo(chat_id: int) -> bool:
     actual = gi_grupo_activo(chat_id)
     nuevo  = 0 if actual else 1
     with get_conn() as conn:
+        # Forzar escritura explícita del valor (reemplaza NULL si existía)
         conn.execute(
             "UPDATE gi_grupos SET gi_activo=? WHERE chat_id=?", (nuevo, chat_id)
+        )
+        # Si no existía la fila (raro), asegurarse de que quede en DB
+        conn.execute(
+            "UPDATE gi_grupos SET gi_activo=1 WHERE chat_id=? AND gi_activo IS NULL",
+            (chat_id,)
         )
     return bool(nuevo)
 
@@ -5062,9 +5076,15 @@ def gi_toggle_grupo(chat_id: int) -> bool:
 def gi_registrar_grupo(chat_id: int, chat_title: str, chat_key: str):
     try:
         with get_conn() as conn:
+            # INSERT OR IGNORE preserva gi_activo si el grupo ya existía
             conn.execute(
-                "INSERT OR REPLACE INTO gi_grupos (chat_id, chat_title, chat_key, ultimo_msg) VALUES (?,?,?,CURRENT_TIMESTAMP)",
+                "INSERT OR IGNORE INTO gi_grupos (chat_id, chat_title, chat_key, gi_activo, ultimo_msg) VALUES (?,?,?,1,CURRENT_TIMESTAMP)",
                 (chat_id, chat_title or "?", chat_key)
+            )
+            # Actualizar solo título, key y timestamp — sin tocar gi_activo
+            conn.execute(
+                "UPDATE gi_grupos SET chat_title=?, chat_key=?, ultimo_msg=CURRENT_TIMESTAMP WHERE chat_id=?",
+                (chat_title or "?", chat_key, chat_id)
             )
     except Exception:
         pass
@@ -5493,7 +5513,8 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
         gi_on = gi_grupo_activo(chat_id)
-        toggle_lbl = "🎤 Desactivar Idol" if gi_on else "✅ Activar Idol"
+        toggle_lbl = "🔇 Desactivar Idol" if gi_on else "🎤 Activar Idol"
+        gi_estado = "🎤 Idol: activo" if gi_on else "🔇 Idol: desactivado"
         kbd = [
             [InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}")],
             [InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}")],
@@ -5501,7 +5522,7 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if link:
             kbd[0].append(InlineKeyboardButton("🔗 Ir al grupo", url=link))
 
-        caption = "*" + esc(title) + "*\n`" + str(chat_id) + "`"
+        caption = "*" + esc(title) + "*\n`" + str(chat_id) + "`\n" + gi_estado
         await update.message.reply_text(
             caption,
             parse_mode="MarkdownV2",
@@ -5693,7 +5714,7 @@ async def gi_btn_toggle_grupo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     estado_txt = "✅ activado" if nuevo_estado else "🔇 desactivado"
     await query.answer(f"Adivina la Idol {estado_txt} en ese grupo.", show_alert=True)
 
-    # Actualizar el botón en el mensaje
+    # Actualizar botón y caption del mensaje
     try:
         markup = query.message.reply_markup
         if markup:
@@ -5702,12 +5723,21 @@ async def gi_btn_toggle_grupo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 new_row = []
                 for btn in row:
                     if btn.callback_data and btn.callback_data == query.data:
-                        lbl = "🎤 Desactivar Idol" if nuevo_estado else "✅ Activar Idol"
+                        lbl = "🔇 Desactivar Idol" if nuevo_estado else "🎤 Activar Idol"
                         new_row.append(InlineKeyboardButton(lbl, callback_data=query.data))
                     else:
                         new_row.append(btn)
                 new_rows.append(new_row)
-            await query.message.edit_reply_markup(InlineKeyboardMarkup(new_rows))
+            # Actualizar caption con nuevo estado
+            gi_estado_txt = "🎤 Idol: activo" if nuevo_estado else "🔇 Idol: desactivado"
+            old_text = query.message.text or ""
+            # Reemplazar línea de estado o agregar al final
+            import re as _re
+            new_text = _re.sub(r"[🎤🔇] Idol: (?:activo|desactivado)", gi_estado_txt, old_text)
+            if new_text == old_text:
+                new_text = old_text + "\n" + gi_estado_txt
+            await query.message.edit_text(new_text, parse_mode="MarkdownV2",
+                                          reply_markup=InlineKeyboardMarkup(new_rows))
     except Exception:
         pass
 
