@@ -3290,11 +3290,22 @@ async def _timer_adivinanza_body(chat_key, impostor_id, chat_id, thread_id, ctx)
             await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
         return
 
-    # Sin intento → timeout real, el grupo gana
+    # Sin intento → timeout real, el impostor eliminado no adivinó
     msg_text = t(chat_key, "adiv_timeout").format(nombre=esc_link(nombre_j), uid=impostor_id)
     msg = await ctx.bot.send_message(chat_id, msg_text, parse_mode="MarkdownV2", message_thread_id=thread_id)
 
-    await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
+    # Verificar si quedan otros impostores vivos antes de declarar ganador
+    if not impostores_vivos:
+        await _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categoria, detalle_votos, msg)
+        return
+    inocentes_restantes = [v for v in vivos_restantes_ids if v not in impostor_ids_set]
+    if len(inocentes_restantes) <= 1:
+        await _fin_impostores_ganan(
+            chat_key, ctx, partida, jugadores, impostores,
+            None, palabra, categoria, detalle_votos, msg, razon="supervivencia"
+        )
+        return
+    await _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_restantes_ids, impostor_ids_set, palabra, categoria, msg)
 
 
 TIMER_TURNO_SEGUNDOS = 60
