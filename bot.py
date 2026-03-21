@@ -451,6 +451,8 @@ TEXTOS = {
         "btn_imp_menos":            "➖",
         "btn_imp_mas":              "➕",
         "btn_imp_confirmar":        "✅ Confirmar y elegir categoría",
+        "btn_imp_random":           "🎲 Random (1-3)",
+        "config_impostores_random":  "⚙️ *Configurar impostores*\n\nJugadores: *{n}*\nImpostores: *🎲 Random \\(1\\-3\\)*\n\n_El creador puede elegir cuántos impostores habrá\\._",
 
         "solo_creador_categoria":   "Solo el creador puede elegir la categoría.",
         "cat_sorpresa_grupo":       "🎲 *¡Categoría sorpresa\\!*",
@@ -653,6 +655,8 @@ TEXTOS = {
         "btn_imp_menos":            "➖",
         "btn_imp_mas":              "➕",
         "btn_imp_confirmar":        "✅ Confirm and choose category",
+        "btn_imp_random":           "🎲 Random (1-3)",
+        "config_impostores_random":  "⚙️ *Configure impostors*\n\nPlayers: *{n}*\nImpostors: *🎲 Random \\(1\\-3\\)*\n\n_The creator can choose how many impostors there will be\\._",
 
         "solo_creador_categoria":   "Only the creator can choose the category.",
         "cat_sorpresa_grupo":       "🎲 *Surprise category\\!*",
@@ -1770,6 +1774,42 @@ BOT_OWNER_ID = int(os.environ.get("BOT_OWNER_ID", "0"))
 
 from datetime import datetime, timezone as _tz, timedelta
 
+def _parse_fecha_hora(texto: str, tz_offset: int):
+    """Parsea fecha+hora: 'DD/MM HH:MM', 'DD/MM/YYYY HH:MM' o solo 'HH:MM' (asume hoy/mañana).
+    Retorna timestamp UTC o None si formato inválido.
+    """
+    import re as _re
+    texto = texto.strip()
+    local_obj = _tz(timedelta(hours=tz_offset))
+    now_local = datetime.now(_tz.utc).astimezone(local_obj)
+    try:
+        # Formato DD/MM HH:MM o DD/MM/YYYY HH:MM
+        m = _re.match(r'^(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\s+(\d{1,2}):(\d{2})$', texto)
+        if m:
+            day, mon = int(m.group(1)), int(m.group(2))
+            yr_raw = m.group(3)
+            yr = int(yr_raw) if yr_raw else now_local.year
+            if yr < 100: yr += 2000
+            h, mi = int(m.group(4)), int(m.group(5))
+            if not (1<=day<=31 and 1<=mon<=12 and 0<=h<=23 and 0<=mi<=59):
+                return None
+            sched = now_local.replace(year=yr, month=mon, day=day, hour=h, minute=mi, second=0, microsecond=0)
+            return int(sched.astimezone(_tz.utc).timestamp())
+        # Formato solo HH:MM → asume hoy o mañana
+        m2 = _re.match(r'^(\d{1,2}):(\d{2})$', texto)
+        if m2:
+            h, mi = int(m2.group(1)), int(m2.group(2))
+            if not (0<=h<=23 and 0<=mi<=59):
+                return None
+            sched = now_local.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if sched <= now_local:
+                sched += timedelta(days=1)
+            return int(sched.astimezone(_tz.utc).timestamp())
+        return None
+    except Exception:
+        return None
+
+
 def _parse_hora(hora_str: str, tz_offset: int):
     try:
         hora_str = hora_str.strip()
@@ -1786,6 +1826,16 @@ def _parse_hora(hora_str: str, tz_offset: int):
         return int(sched.astimezone(_tz.utc).timestamp())
     except Exception:
         return None
+
+def _formato_fecha_hora_local(ts: int, tz_offset: int) -> str:
+    """Formatea timestamp como 'DD/MM HH:MM (UTCx)'."""
+    dt    = datetime.fromtimestamp(ts, tz=_tz.utc)
+    local = dt + timedelta(hours=tz_offset)
+    if tz_offset == 0:   tz_label = "UTC"
+    elif tz_offset > 0:  tz_label = f"UTC+{tz_offset}"
+    else:                tz_label = f"UTC{tz_offset}"
+    return local.strftime(f"%d/%m %H:%M ({tz_label})")
+
 
 def _formato_hora_local(ts: int, tz_offset: int) -> str:
     dt    = datetime.fromtimestamp(ts, tz=_tz.utc)
@@ -2688,16 +2738,23 @@ async def _mostrar_config_impostores(chat_key, jugadores, message, ctx):
     """Muestra la pantalla de configuración de número de impostores."""
     cfg = ctx.bot_data.get(f"imp_config_{chat_key}", {})
     imp = cfg.get("imp", 1)
-    mx  = cfg.get("max", 3)
+    es_random = cfg.get("random", False)
     n   = cfg.get("n", len(jugadores))
 
-    texto = t(chat_key, "config_impostores").format(n=n, imp=imp)
+    if es_random:
+        texto = t(chat_key, "config_impostores_random").format(n=n)
+        imp_label = "🎲"
+    else:
+        texto = t(chat_key, "config_impostores").format(n=n, imp=imp)
+        imp_label = f"{'👤' * imp} {imp}"
+
     keyboard = [
         [
             InlineKeyboardButton(t(chat_key, "btn_imp_menos"), callback_data="imp_config:menos"),
-            InlineKeyboardButton(f"{'👤' * imp} {imp}", callback_data="imp_config:info"),
+            InlineKeyboardButton(imp_label, callback_data="imp_config:info"),
             InlineKeyboardButton(t(chat_key, "btn_imp_mas"),  callback_data="imp_config:mas"),
         ],
+        [InlineKeyboardButton(t(chat_key, "btn_imp_random"), callback_data="imp_config:random")],
         [InlineKeyboardButton(t(chat_key, "btn_imp_confirmar"), callback_data="imp_config:confirmar")],
     ]
     await message.reply_text(texto, parse_mode="MarkdownV2",
@@ -2723,16 +2780,24 @@ async def btn_imp_config(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if action == "menos":
         cfg["imp"] = max(1, cfg["imp"] - 1)
+        cfg["random"] = False
         await query.answer()
     elif action == "mas":
         cfg["imp"] = min(cfg["max"], cfg["imp"] + 1)
+        cfg["random"] = False
+        await query.answer()
+    elif action == "random":
+        cfg["random"] = not cfg.get("random", False)
         await query.answer()
     elif action == "info":
         await query.answer()
         return
     elif action == "confirmar":
         # Guardar elección y pasar a categoría
-        ctx.bot_data[f"num_impostores_{chat_key}"] = cfg["imp"]
+        if cfg.get("random"):
+            ctx.bot_data[f"num_impostores_{chat_key}"] = "random"
+        else:
+            ctx.bot_data[f"num_impostores_{chat_key}"] = cfg["imp"]
         ctx.bot_data.pop(f"imp_config_{chat_key}", None)
         await query.answer()
 
@@ -2751,13 +2816,20 @@ async def btn_imp_config(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Redibujar botones con el nuevo valor
     imp = cfg["imp"]
-    texto = t(chat_key, "config_impostores").format(n=cfg["n"], imp=imp)
+    es_random_r = cfg.get("random", False)
+    if es_random_r:
+        texto = t(chat_key, "config_impostores_random").format(n=cfg["n"])
+        imp_label_r = "🎲"
+    else:
+        texto = t(chat_key, "config_impostores").format(n=cfg["n"], imp=imp)
+        imp_label_r = f"{'👤' * imp} {imp}"
     keyboard = [
         [
             InlineKeyboardButton(t(chat_key, "btn_imp_menos"), callback_data="imp_config:menos"),
-            InlineKeyboardButton(f"{'👤' * imp} {imp}", callback_data="imp_config:info"),
+            InlineKeyboardButton(imp_label_r, callback_data="imp_config:info"),
             InlineKeyboardButton(t(chat_key, "btn_imp_mas"),  callback_data="imp_config:mas"),
         ],
+        [InlineKeyboardButton(t(chat_key, "btn_imp_random"), callback_data="imp_config:random")],
         [InlineKeyboardButton(t(chat_key, "btn_imp_confirmar"), callback_data="imp_config:confirmar")],
     ]
     try:
@@ -2815,7 +2887,9 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         jugadores = get_jugadores_activos(chat_key)
         # Usar número configurado manualmente si existe
         num_impostores = ctx.bot_data.pop(f"num_impostores_{chat_key}", None)
-        if num_impostores is None:
+        if num_impostores == "random":
+            num_impostores = random.randint(1, min(3, len(jugadores) - 2))
+        elif num_impostores is None:
             num_impostores = calcular_num_impostores(len(jugadores))
         num_impostores = max(1, min(num_impostores, len(jugadores) - 2))
         impostores = random.sample(jugadores, num_impostores)
@@ -3611,17 +3685,16 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             gi_setup_priv["esperando"] = None
             import re as _re_gi
             if campo_gi in ("inicio", "fin"):
-                if _re_gi.match(r"^\d{1,2}:\d{2}$", texto):
                     tz_gi = gi_setup_priv.get("tz_offset", 0)
-                    ts_gi = _parse_hora(texto, tz_gi)
+                    ts_gi = _parse_fecha_hora(texto, tz_gi)
                     if ts_gi:
                         gi_setup_priv[f"{campo_gi}_ts"] = ts_gi
                     else:
-                        await update.message.reply_text("⚠️ Hora inválida. Usa HH:MM")
+                        await update.message.reply_text(
+                            "⚠️ Formato inválido\\. Usa HH:MM o DD/MM HH:MM",
+                            parse_mode="MarkdownV2"
+                        )
                         return
-                else:
-                    await update.message.reply_text("⚠️ Formato inválido. Usa HH:MM (ej: 20:00)")
-                    return
             else:
                 # "idol" se almacena como "idol_name" para coincidir con gi_build_setup_text
                 key_gi = "idol_name" if campo_gi == "idol" else campo_gi
@@ -5180,8 +5253,8 @@ def gi_build_setup_text(setup: dict, lang: str) -> str:
     h1_v     = f"*{esc(setup['hint1'])}*" if setup.get("hint1") else no_conf
     h2_v     = f"*{esc(setup['hint2'])}*" if setup.get("hint2") else no_conf
     h3_v     = f"*{esc(setup['hint3'])}*" if setup.get("hint3") else no_conf
-    ini_v    = f"*{esc(_formato_hora_local(setup['inicio_ts'], tz))}*" if setup.get("inicio_ts") else no_conf
-    fin_v    = f"*{esc(_formato_hora_local(setup['fin_ts'], tz))}*" if setup.get("fin_ts") else no_conf
+    ini_v    = f"*{esc(_formato_fecha_hora_local(setup['inicio_ts'], tz))}*" if setup.get("inicio_ts") else no_conf
+    fin_v    = f"*{esc(_formato_fecha_hora_local(setup['fin_ts'], tz))}*" if setup.get("fin_ts") else no_conf
     tz_v     = f"*{esc(_tz_label(tz))}*"
 
     if lang == "es":
@@ -5829,9 +5902,17 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(msg, show_alert=True)
         return
 
-    elif action in ("idol", "hint1", "hint2", "hint3", "inicio", "fin"):
+    elif action in ("idol", "hint1", "hint2", "hint3"):
         setup["esperando"] = action
         msg = "Escribe el valor en el chat." if lang == "es" else "Type the value in the chat."
+        await query.answer(msg, show_alert=True)
+        return
+
+    elif action in ("inicio", "fin"):
+        setup["esperando"] = action
+        msg = ("Escribe fecha y hora: DD/MM HH:MM (ej: 25/03 20:00)\no solo hora HH:MM para hoy/mañana"
+               if lang == "es" else
+               "Enter date and time: DD/MM HH:MM (eg: 25/03 20:00)\nor just HH:MM for today/tomorrow")
         await query.answer(msg, show_alert=True)
         return
 
