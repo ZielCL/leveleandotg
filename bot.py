@@ -5522,12 +5522,24 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
 
         lang     = get_idioma(chat_key)
         txt_fin  = gi_t(lang, "gi_ronda_sin_ganador").format(idol=esc(idol_name))
+        # Editar caption de imagen misterio
         try:
             await bot.edit_message_caption(
                 chat_id=chat_id, message_id=msg_id,
                 caption=txt_fin, parse_mode="MarkdownV2"
             )
         except Exception:
+            pass
+        # Enviar imagen reveal con el texto de fin
+        if file_id_reveal:
+            try:
+                await bot.send_photo(
+                    chat_id, photo=file_id_reveal,
+                    caption=txt_fin, parse_mode="MarkdownV2"
+                )
+            except Exception:
+                await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
+        else:
             await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
 
         bot_data.pop(f"gi_ronda_{chat_key}", None)
