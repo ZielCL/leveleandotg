@@ -5447,17 +5447,52 @@ _GI_SLOTS_UTC = [
     (18, 19), (20, 21), (22, 23), (0, 1),
 ]
 
-def _gi_slot_ts(ini_h: int, fin_h: int) -> tuple:
-    """Retorna (inicio_ts, fin_ts) UTC para el próximo día con ese slot horario."""
+def _gi_slot_ts(ini_h: int, fin_h: int, day_offset: int = 0) -> tuple:
+    """Retorna (inicio_ts, fin_ts) UTC para el próximo día con ese slot horario.
+    day_offset permite calcular el slot de días futuros.
+    """
     now_utc = datetime.now(_tz.utc)
-    # Construir el inicio para hoy
     ini = now_utc.replace(hour=ini_h, minute=0, second=0, microsecond=0)
-    # Si ya pasó, usar mañana
     if ini <= now_utc:
         ini += timedelta(days=1)
-    fin_h_real = fin_h if fin_h > ini_h else fin_h + 24  # slot que cruza medianoche
+    ini += timedelta(days=day_offset)
+    fin_h_real = fin_h if fin_h > ini_h else fin_h + 24
     fin = ini + timedelta(hours=(fin_h_real - ini_h))
     return int(ini.timestamp()), int(fin.timestamp())
+
+
+def _gi_slots_disponibles() -> list:
+    """Retorna los próximos 8 slots que NO están ya programados (pendientes).
+    Cada elemento: (ini_h, fin_h, ini_ts, fin_ts, label)
+    """
+    # Obtener todos los inicio_ts de programaciones pendientes
+    with get_conn() as conn:
+        ocupados = set(
+            row[0] for row in conn.execute(
+                "SELECT inicio_ts FROM gi_programacion WHERE estado='pendiente'"
+            ).fetchall()
+        )
+
+    disponibles = []
+    day_offset = 0
+    now_utc = datetime.now(_tz.utc)
+
+    while len(disponibles) < 8:
+        for ini_h, fin_h in _GI_SLOTS_UTC:
+            ini_ts, fin_ts = _gi_slot_ts(ini_h, fin_h, day_offset)
+            # Saltar si ya pasó o está ocupado
+            if ini_ts in ocupados or ini_ts <= now_utc.timestamp():
+                continue
+            ini_dt = datetime.fromtimestamp(ini_ts, tz=_tz.utc)
+            lbl = f"{ini_h:02d}:00–{fin_h:02d}:00 ({ini_dt.strftime('%d/%m')})"
+            disponibles.append((ini_h, fin_h, ini_ts, fin_ts, lbl))
+            if len(disponibles) >= 8:
+                break
+        day_offset += 1
+        if day_offset > 30:  # seguro contra loop infinito
+            break
+
+    return disponibles
 
 
 def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
@@ -5475,15 +5510,12 @@ def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
     lbl_can    = "❌ Cancelar"            if lang == "es" else "❌ Cancel"
     lbl_slots  = "🕐 Elegir horario fijo:" if lang == "es" else "🕐 Fixed time slot:"
 
-    # Botones de slots (2 por fila)
+    # Botones de slots disponibles (sin los ya programados)
+    slots = _gi_slots_disponibles()
     slot_rows = []
-    now_utc = datetime.now(_tz.utc)
-    for i in range(0, len(_GI_SLOTS_UTC), 2):
+    for i in range(0, len(slots), 2):
         row = []
-        for ini_h, fin_h in _GI_SLOTS_UTC[i:i+2]:
-            ini_ts, _ = _gi_slot_ts(ini_h, fin_h)
-            ini_dt = datetime.fromtimestamp(ini_ts, tz=_tz.utc)
-            lbl = f"{ini_h:02d}:00–{fin_h:02d}:00 ({ini_dt.strftime('%d/%m')})"
+        for ini_h, fin_h, ini_ts, fin_ts, lbl in slots[i:i+2]:
             row.append(InlineKeyboardButton(lbl, callback_data=f"gi:setup:slot:{ini_h}:{fin_h}"))
         slot_rows.append(row)
 
@@ -6108,13 +6140,16 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     elif action == "slot":
-        # gi:setup:slot:INI_H:FIN_H
+        # gi:setup:slot:INI_H:FIN_H — buscar el slot disponible más próximo
         if len(parts) >= 5:
             ini_h = int(parts[3])
             fin_h = int(parts[4])
-            ini_ts, fin_ts = _gi_slot_ts(ini_h, fin_h)
-            setup["inicio_ts"] = ini_ts
-            setup["fin_ts"]    = fin_ts
+            # Buscar en slots disponibles el que coincida con ini_h/fin_h
+            slots = _gi_slots_disponibles()
+            match = next((s for s in slots if s[0] == ini_h and s[1] == fin_h), None)
+            if match:
+                setup["inicio_ts"] = match[2]
+                setup["fin_ts"]    = match[3]
             await query.answer()
         else:
             await query.answer()
