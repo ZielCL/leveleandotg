@@ -5441,50 +5441,74 @@ def gi_build_setup_text(setup: dict, lang: str) -> str:
         f"{nota}"
     )
 
+# Slots fijos UTC para Adivina la Idol
+_GI_SLOTS_UTC = [
+    (10, 11), (12, 13), (14, 15), (16, 17),
+    (18, 19), (20, 21), (22, 23), (0, 1),
+]
+
+def _gi_slot_ts(ini_h: int, fin_h: int) -> tuple:
+    """Retorna (inicio_ts, fin_ts) UTC para el próximo día con ese slot horario."""
+    now_utc = datetime.now(_tz.utc)
+    # Construir el inicio para hoy
+    ini = now_utc.replace(hour=ini_h, minute=0, second=0, microsecond=0)
+    # Si ya pasó, usar mañana
+    if ini <= now_utc:
+        ini += timedelta(days=1)
+    fin_h_real = fin_h if fin_h > ini_h else fin_h + 24  # slot que cruza medianoche
+    fin = ini + timedelta(hours=(fin_h_real - ini_h))
+    return int(ini.timestamp()), int(fin.timestamp())
+
+
 def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
     tz = setup.get("tz_offset", 0)
-    if lang == "es":
-        rows = [
-            [InlineKeyboardButton("📸 Imagen misterio",            callback_data="gi:setup:imagen")],
-            [InlineKeyboardButton("🖼 Imagen reveal (al acertar)", callback_data="gi:setup:imagen_reveal")],
-            [InlineKeyboardButton("👤 Nombre de la idol",         callback_data="gi:setup:idol")],
-            [InlineKeyboardButton("👥 Pista 1: Miembros del grupo", callback_data="gi:setup:hint1")],
-            [InlineKeyboardButton("🏢 Pista 2: Empresa",          callback_data="gi:setup:hint2")],
-            [InlineKeyboardButton("🎤 Pista 3: Nombre del grupo", callback_data="gi:setup:hint3")],
-            [InlineKeyboardButton("⏰ Hora de inicio",             callback_data="gi:setup:inicio")],
-            [InlineKeyboardButton("⏹ Hora de fin",                callback_data="gi:setup:fin")],
-            [
-                InlineKeyboardButton(f"◀ {_tz_label(max(-12,tz-1))}", callback_data="gi:setup:tz:-1"),
-                InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
-                InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
-            ],
-            [InlineKeyboardButton("👁 Vista previa",              callback_data="gi:setup:preview")],
-            [
-                InlineKeyboardButton("✅ Publicar",  callback_data="gi:setup:publicar"),
-                InlineKeyboardButton("❌ Cancelar",  callback_data="gi:setup:cancelar"),
-            ],
-        ]
-    else:
-        rows = [
-            [InlineKeyboardButton("📸 Mystery image",             callback_data="gi:setup:imagen")],
-            [InlineKeyboardButton("🖼 Reveal image (on correct)", callback_data="gi:setup:imagen_reveal")],
-            [InlineKeyboardButton("👤 Idol name",                 callback_data="gi:setup:idol")],
-            [InlineKeyboardButton("👥 Hint 1: Group members",     callback_data="gi:setup:hint1")],
-            [InlineKeyboardButton("🏢 Hint 2: Company",           callback_data="gi:setup:hint2")],
-            [InlineKeyboardButton("🎤 Hint 3: Group name",        callback_data="gi:setup:hint3")],
-            [InlineKeyboardButton("⏰ Start time",                 callback_data="gi:setup:inicio")],
-            [InlineKeyboardButton("⏹ End time",                   callback_data="gi:setup:fin")],
-            [
-                InlineKeyboardButton(f"◀ {_tz_label(max(-12,tz-1))}", callback_data="gi:setup:tz:-1"),
-                InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
-                InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
-            ],
-            [InlineKeyboardButton("👁 Preview",                   callback_data="gi:setup:preview")],
-            [
-                InlineKeyboardButton("✅ Publish", callback_data="gi:setup:publicar"),
-                InlineKeyboardButton("❌ Cancel",  callback_data="gi:setup:cancelar"),
-            ],
-        ]
+    lbl_img    = "📸 Imagen misterio"     if lang == "es" else "📸 Mystery image"
+    lbl_rev    = "🖼 Imagen reveal"       if lang == "es" else "🖼 Reveal image"
+    lbl_idol   = "👤 Nombre de la idol"   if lang == "es" else "👤 Idol name"
+    lbl_h1     = "👥 Pista 1: Miembros"  if lang == "es" else "👥 Hint 1: Members"
+    lbl_h2     = "🏢 Pista 2: Empresa"   if lang == "es" else "🏢 Hint 2: Company"
+    lbl_h3     = "🎤 Pista 3: Grupo"     if lang == "es" else "🎤 Hint 3: Group"
+    lbl_ini    = "⏰ Inicio manual"       if lang == "es" else "⏰ Start (manual)"
+    lbl_fin    = "⏹ Fin manual"          if lang == "es" else "⏹ End (manual)"
+    lbl_prev   = "👁 Vista previa"        if lang == "es" else "👁 Preview"
+    lbl_pub    = "✅ Publicar"            if lang == "es" else "✅ Publish"
+    lbl_can    = "❌ Cancelar"            if lang == "es" else "❌ Cancel"
+    lbl_slots  = "🕐 Elegir horario fijo:" if lang == "es" else "🕐 Fixed time slot:"
+
+    # Botones de slots (2 por fila)
+    slot_rows = []
+    now_utc = datetime.now(_tz.utc)
+    for i in range(0, len(_GI_SLOTS_UTC), 2):
+        row = []
+        for ini_h, fin_h in _GI_SLOTS_UTC[i:i+2]:
+            ini_ts, _ = _gi_slot_ts(ini_h, fin_h)
+            ini_dt = datetime.fromtimestamp(ini_ts, tz=_tz.utc)
+            lbl = f"{ini_h:02d}:00–{fin_h:02d}:00 ({ini_dt.strftime('%d/%m')})"
+            row.append(InlineKeyboardButton(lbl, callback_data=f"gi:setup:slot:{ini_h}:{fin_h}"))
+        slot_rows.append(row)
+
+    rows = [
+        [InlineKeyboardButton(lbl_img,  callback_data="gi:setup:imagen")],
+        [InlineKeyboardButton(lbl_rev,  callback_data="gi:setup:imagen_reveal")],
+        [InlineKeyboardButton(lbl_idol, callback_data="gi:setup:idol")],
+        [InlineKeyboardButton(lbl_h1,   callback_data="gi:setup:hint1")],
+        [InlineKeyboardButton(lbl_h2,   callback_data="gi:setup:hint2")],
+        [InlineKeyboardButton(lbl_h3,   callback_data="gi:setup:hint3")],
+        [InlineKeyboardButton(lbl_slots, callback_data="gi:setup:slot_header")],
+    ] + slot_rows + [
+        [InlineKeyboardButton(lbl_ini, callback_data="gi:setup:inicio"),
+         InlineKeyboardButton(lbl_fin, callback_data="gi:setup:fin")],
+        [
+            InlineKeyboardButton(f"◀ {_tz_label(max(-12,tz-1))}", callback_data="gi:setup:tz:-1"),
+            InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
+            InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
+        ],
+        [InlineKeyboardButton(lbl_prev, callback_data="gi:setup:preview")],
+        [
+            InlineKeyboardButton(lbl_pub, callback_data="gi:setup:publicar"),
+            InlineKeyboardButton(lbl_can, callback_data="gi:setup:cancelar"),
+        ],
+    ]
     return rows
 
 def gi_build_ronda_caption(chat_key: str, fin_ts: int, puntos: int,
@@ -6081,6 +6105,23 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         setup["esperando"] = action
         msg = "Escribe el valor en el chat." if lang == "es" else "Type the value in the chat."
         await query.answer(msg, show_alert=True)
+        return
+
+    elif action == "slot":
+        # gi:setup:slot:INI_H:FIN_H
+        if len(parts) >= 5:
+            ini_h = int(parts[3])
+            fin_h = int(parts[4])
+            ini_ts, fin_ts = _gi_slot_ts(ini_h, fin_h)
+            setup["inicio_ts"] = ini_ts
+            setup["fin_ts"]    = fin_ts
+            await query.answer()
+        else:
+            await query.answer()
+            return
+
+    elif action == "slot_header":
+        await query.answer()
         return
 
     elif action in ("inicio", "fin"):
