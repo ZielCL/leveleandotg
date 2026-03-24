@@ -482,6 +482,9 @@ TEXTOS = {
         "voto_invalido":            "Voto inválido.",
         "segundo_empate":           "⚖️ *¡Segundo empate\\!*\n\nNadie es eliminado en esta ronda\\. ¡El juego continúa\\!\n\nEl creador abre la votación cuando estén listos\\.",
         "btn_abrir_votacion":       "🗳️ ¡Abrir votación!",
+        "votacion_auto":            "⏰ *¡Votación abierta automáticamente\\!*\n\n_Jugadores vivos \\({n}\\) — votan en 1 minuto:_",
+        "votos_insuficientes":      "⚠️ *Nadie alcanzó 2 votos*\n\nSe reabre la votación\\.",
+        "votos_timeout":            "⏰ *Tiempo de votación agotado*\n\n",
         "empate":                   "⚖️ *¡Empate\\!*\n\n{nombres} tienen *{n} votos* cada uno\\.\n\n🔁 *Revotación* — Solo entre los empatados:\n_Jugadores vivos, voten de nuevo:_",
         "nuevo_creador":            "👑 *{nombre}* es el nuevo creador y puede abrir la votación\\.",
         "resultado_votacion":       "🗳️ *Resultado de la votación:*\n\nEl grupo votó por *{nombre}*\n{etiqueta}\n\n*Votos:*\n{detalle}",
@@ -686,6 +689,9 @@ TEXTOS = {
         "voto_invalido":            "Invalid vote.",
         "segundo_empate":           "⚖️ *Second tie\\!*\n\nNobody is eliminated this round\\. The game continues\\!\n\nThe creator opens voting when ready\\.",
         "btn_abrir_votacion":       "🗳️ Open voting!",
+        "votacion_auto":            "⏰ *Voting opened automatically\\!*\n\n_Alive players \\({n}\\) — 1 minute to vote:_",
+        "votos_insuficientes":      "⚠️ *Nobody reached 2 votes*\n\nVoting reopened\\.",
+        "votos_timeout":            "⏰ *Voting time expired*\n\n",
         "empate":                   "⚖️ *Tie\\!*\n\n{nombres} have *{n} votes* each\\.\n\n🔁 *Re-vote* — Only tied players:\n_Alive players, vote again:_",
         "nuevo_creador":            "👑 *{nombre}* is the new creator and can open voting\\.",
         "resultado_votacion":       "🗳️ *Voting result:*\n\nThe group voted for *{nombre}*\n{etiqueta}\n\n*Votes:*\n{detalle}",
@@ -2972,6 +2978,130 @@ async def btn_categoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await _anunciar_turno(chat_key, primer[0], primer[1], chat_id, thread_id, ctx)
 
 
+async def _timer_abrir_votacion(chat_key: str, chat_id: int, thread_id, ctx):
+    """Abre la votación automáticamente después de 30 segundos."""
+    await asyncio.sleep(30)
+    # Verificar que la partida sigue en jugando y no se abrió ya la votación
+    partida = get_partida(chat_key)
+    if not partida or partida[2] != "jugando":
+        return
+    # Verificar que no hay votación ya abierta
+    if ctx.bot_data.get(f"votos_{chat_key}") is not None:
+        return
+
+    vivos_ids = get_vivos(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+
+    keyboard = [
+        [InlineKeyboardButton(f"🗳️ {j[1]}", callback_data=f"voto:{j[0]}")]
+        for j in vivos
+    ]
+    ctx.bot_data[f"votos_{chat_key}"] = {}
+
+    try:
+        await ctx.bot.send_message(
+            chat_id,
+            t(chat_key, "votacion_auto").format(n=len(vivos)),
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            message_thread_id=thread_id
+        )
+    except Exception as e:
+        logger.error(f"[TIMER_VOTAR] Error auto-abriendo votación {chat_key}: {e}")
+        return
+
+    # Lanzar timer de 1 minuto para auto-resolver
+    tarea = asyncio.create_task(_timer_resolver_votacion(chat_key, chat_id, thread_id, ctx))
+    ctx.bot_data[f"timer_votacion_{chat_key}"] = tarea
+    ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+
+
+async def _timer_resolver_votacion(chat_key: str, chat_id: int, thread_id, ctx):
+    """Resuelve la votación automáticamente después de 1 minuto."""
+    await asyncio.sleep(60)
+
+    partida = get_partida(chat_key)
+    if not partida or partida[2] != "jugando":
+        ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+        return
+
+    votos = ctx.bot_data.get(f"votos_{chat_key}")
+    if votos is None:
+        ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+        return
+
+    ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+    ctx.bot_data.pop(f"votos_{chat_key}", None)
+
+    vivos_ids = get_vivos(chat_key)
+    jugadores = get_jugadores_activos(chat_key)
+    vivos = [j for j in jugadores if j[0] in vivos_ids]
+
+    # Contar votos
+    conteo = {}
+    for v in votos.values():
+        conteo[v] = conteo.get(v, 0) + 1
+
+    # Filtrar solo quienes tienen 2+ votos
+    con_dos_votos = {uid: cnt for uid, cnt in conteo.items() if cnt >= 2}
+
+    class _FakeMsg:
+        def __init__(self, b, ci, ti):
+            self.chat = type('C', (), {'id': ci})()
+            self._bot = b
+            self._ti = ti
+        async def reply_text(self, *a, **kw):
+            kw.setdefault('message_thread_id', self._ti)
+            return await self._bot.send_message(self.chat.id, *a, **kw)
+
+    fake_msg = _FakeMsg(ctx.bot, chat_id, thread_id)
+
+    if not con_dos_votos:
+        # Nadie llegó a 2 votos
+        lang = get_idioma(chat_key)
+
+        # ¿Ya ocurrió antes? → nueva ronda de pistas
+        if ctx.bot_data.get(f"votacion_sin_resultado_{chat_key}"):
+            ctx.bot_data.pop(f"votacion_sin_resultado_{chat_key}", None)
+            impostor_ids_raw = partida[5] or ""
+            impostor_ids_set = set(int(i) for i in impostor_ids_raw.split(",") if i.strip())
+            await ctx.bot.send_message(
+                chat_id,
+                t(chat_key, "segundo_empate"),
+                parse_mode="MarkdownV2",
+                message_thread_id=thread_id
+            )
+            await _nueva_ronda_pistas(
+                chat_key, ctx, jugadores, vivos_ids,
+                impostor_ids_set, partida[4], partida[3], fake_msg
+            )
+        else:
+            # Primera vez → reabrir votación
+            ctx.bot_data[f"votacion_sin_resultado_{chat_key}"] = True
+            keyboard = [
+                [InlineKeyboardButton(f"🗳️ {j[1]}", callback_data=f"voto:{j[0]}")]
+                for j in vivos
+            ]
+            ctx.bot_data[f"votos_{chat_key}"] = {}
+            msg_reopen = await ctx.bot.send_message(
+                chat_id,
+                t(chat_key, "votos_insuficientes"),
+                parse_mode="MarkdownV2",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                message_thread_id=thread_id
+            )
+            # Nuevo timer de 1 minuto
+            tarea2 = asyncio.create_task(_timer_resolver_votacion(chat_key, chat_id, thread_id, ctx))
+            ctx.bot_data[f"timer_votacion_{chat_key}"] = tarea2
+        return
+
+    # Hay alguien con 2+ votos → proceder con la eliminación
+    ctx.bot_data.pop(f"votacion_sin_resultado_{chat_key}", None)
+    ctx.bot_data[f"votos_{chat_key}"] = votos  # restaurar para resolver_votacion
+    await resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, fake_msg)
+
+
 async def _abrir_votacion(chat_key, ctx, message):
     vivos_ids = get_vivos(chat_key)
     jugadores = get_jugadores_activos(chat_key)
@@ -2988,6 +3118,11 @@ async def _abrir_votacion(chat_key, ctx, message):
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    # Lanzar timer de 1 minuto para auto-resolver
+    chat_id = message.chat.id
+    thread_id = get_thread_id(chat_key)
+    tarea = asyncio.create_task(_timer_resolver_votacion(chat_key, chat_id, thread_id, ctx))
+    ctx.bot_data[f"timer_votacion_{chat_key}"] = tarea
 
 
 async def btn_abrir_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -3002,6 +3137,11 @@ async def btn_abrir_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if partida[8] != user.id:
         await query.answer(t(chat_key, "solo_creador_votar"), show_alert=True)
         return
+
+    # Cancelar timer de auto-abrir si existe
+    tarea_abv = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+    if tarea_abv:
+        tarea_abv.cancel()
 
     await query.answer()
     await _abrir_votacion(chat_key, ctx, query.message)
@@ -3492,6 +3632,9 @@ async def _timer_turno_body(chat_key, user_id, chat_id, thread_id, ctx):
             message_thread_id=thread_id,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")]])
         )
+        # Timer de 30s para auto-abrir votación
+        tarea_abv = asyncio.create_task(_timer_abrir_votacion(chat_key, chat_id, thread_id, ctx))
+        ctx.bot_data[f"timer_abrir_votacion_{chat_key}"] = tarea_abv
         return
 
     siguiente_id = orden[siguiente_index]
@@ -3639,6 +3782,9 @@ async def btn_confirmar_pista(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")
             ]])
         )
+        # Timer de 30s para auto-abrir votación
+        tarea_abv2 = asyncio.create_task(_timer_abrir_votacion(chat_key, chat_id, thread_id, ctx))
+        ctx.bot_data[f"timer_abrir_votacion_{chat_key}"] = tarea_abv2
         return
 
     siguiente_id = orden[siguiente_index]
@@ -3919,6 +4065,9 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 message_thread_id=thread_id,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(chat_key, "btn_abrir_votacion"), callback_data="abrir_votar")]])
             )
+            # Timer de 30s para auto-abrir votación
+            tarea_abv3 = asyncio.create_task(_timer_abrir_votacion(chat_key, chat_id, thread_id, ctx))
+            ctx.bot_data[f"timer_abrir_votacion_{chat_key}"] = tarea_abv3
             return
 
         siguiente_id = orden[siguiente_index]
@@ -4007,6 +4156,14 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         if tarea and tarea is not tarea_actual: tarea.cancel()
         tarea_adiv = ctx.bot_data.pop(f"timer_adiv_{chat_key}", None)
         if tarea_adiv and tarea_adiv is not tarea_actual: tarea_adiv.cancel()
+        tarea_abv3 = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+        if tarea_abv3 and tarea_abv3 is not tarea_actual: tarea_abv3.cancel()
+        tarea_tv3 = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+        if tarea_tv3 and tarea_tv3 is not tarea_actual: tarea_tv3.cancel()
+        tarea_abv3 = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+        if tarea_abv3 and tarea_abv3 is not tarea_actual: tarea_abv3.cancel()
+        tarea_tv3 = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+        if tarea_tv3 and tarea_tv3 is not tarea_actual: tarea_tv3.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
         multiplicador = ctx.bot_data.pop(f"multiplicador_{chat_key}", 1)
@@ -4612,6 +4769,12 @@ async def cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tarea_lobby = ctx.bot_data.pop(f"timeout_lobby_{chat_key}", None)
     if tarea_lobby:
         tarea_lobby.cancel()
+    tarea_abv = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+    if tarea_abv:
+        tarea_abv.cancel()
+    tarea_tv = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+    if tarea_tv:
+        tarea_tv.cancel()
     ctx.bot_data.pop(f"turno_{chat_key}", None)
     ctx.bot_data.pop(f"adivinando_{chat_key}", None)
     ctx.bot_data.pop(f"votos_{chat_key}", None)
