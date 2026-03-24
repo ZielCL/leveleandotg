@@ -5799,39 +5799,77 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 El bot no ha registrado ningún grupo aún.")
         return
 
-    grupos = sorted(seen.items(), key=lambda x: str(x[1]))
-    await update.message.reply_text(f"📋 El bot está en {len(grupos)} grupo(s):")
+    aviso = await update.message.reply_text("🔍 Verificando grupos...", parse_mode=None)
 
-    for chat_id, title in grupos:
-        # Intentar obtener el invite link real via API
-        link = None
+    grupos_activos = []
+    grupos_inactivos = []
+
+    for chat_id, title in seen.items():
         try:
             chat_obj = await ctx.bot.get_chat(chat_id)
-            # Si el grupo tiene username público, usar ese link
+            # Bot sigue siendo miembro — obtener link
+            link = None
             if getattr(chat_obj, "username", None):
                 link = f"https://t.me/{chat_obj.username}"
             else:
-                # Intentar exportar invite link (requiere que el bot sea admin)
-                link = await ctx.bot.export_chat_invite_link(chat_id)
+                try:
+                    link = await ctx.bot.export_chat_invite_link(chat_id)
+                except Exception:
+                    pass
+            # Usar el título actualizado de Telegram
+            title_real = chat_obj.title or title
+            grupos_activos.append((chat_id, title_real, link))
+            # Actualizar título en DB si cambió
+            if title_real != title:
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE gi_grupos SET chat_title=? WHERE chat_id=?",
+                        (title_real, chat_id)
+                    )
         except Exception:
-            pass
+            grupos_inactivos.append((chat_id, title))
 
+    try:
+        await aviso.delete()
+    except Exception:
+        pass
+
+    if not grupos_activos:
+        await update.message.reply_text("📭 El bot no está en ningún grupo actualmente.")
+        return
+
+    grupos_activos.sort(key=lambda x: x[1])
+    grupos_activos.sort(key=lambda x: x[1])
+
+    # Un solo mensaje con lista + botones por grupo
+    lineas = []
+    for i, (chat_id, title, link) in enumerate(grupos_activos, 1):
         gi_on = gi_grupo_activo(chat_id)
-        toggle_lbl = "🔇 Desactivar Idol" if gi_on else "🎤 Activar Idol"
-        gi_estado = "🎤 Idol: activo" if gi_on else "🔇 Idol: desactivado"
-        kbd = [
-            [InlineKeyboardButton("📢 Enviar mensaje", callback_data=f"owner:msg:{chat_id}")],
-            [InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}")],
+        estado_icon = "🎤" if gi_on else "🔇"
+        lineas.append(f"  {i}\\. {estado_icon} *{esc(title)}*")
+
+    suffix = f"\n_{len(grupos_inactivos)} ya no lo tienen_" if grupos_inactivos else ""
+    texto = "📋 *El bot está en " + str(len(grupos_activos)) + " grupo\\(s\\):*\n\n" + "\n".join(lineas) + suffix
+
+    # Botones: una fila por grupo con sus acciones
+    keyboard = []
+    for chat_id, title, link in grupos_activos:
+        gi_on = gi_grupo_activo(chat_id)
+        toggle_lbl = "🔇" if gi_on else "🎤"
+        title_short = title[:20] + "…" if len(title) > 20 else title
+        row = [
+            InlineKeyboardButton(f"💬 {title_short}", callback_data=f"owner:msg:{chat_id}"),
+            InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}"),
         ]
         if link:
-            kbd[0].append(InlineKeyboardButton("🔗 Ir al grupo", url=link))
+            row.append(InlineKeyboardButton("🔗", url=link))
+        keyboard.append(row)
 
-        caption = "*" + esc(title) + "*\n`" + str(chat_id) + "`\n" + gi_estado
-        await update.message.reply_text(
-            caption,
-            parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(kbd)
-        )
+    await update.message.reply_text(
+        texto,
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
