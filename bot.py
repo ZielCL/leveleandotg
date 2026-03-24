@@ -1598,6 +1598,34 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+    # Migración divisiones
+    for sql in [
+        "ALTER TABLE gi_marcador ADD COLUMN division INTEGER DEFAULT 1",
+        "ALTER TABLE gi_marcador ADD COLUMN temporada INTEGER DEFAULT 1",
+        "ALTER TABLE gi_marcador ADD COLUMN victorias_temp INTEGER DEFAULT 0",
+        "ALTER TABLE gi_rondas ADD COLUMN division INTEGER DEFAULT 1",
+        "ALTER TABLE gi_programacion ADD COLUMN division INTEGER DEFAULT 1",
+        """CREATE TABLE IF NOT EXISTS gi_temporada (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_key TEXT,
+            numero INTEGER DEFAULT 1,
+            estado TEXT DEFAULT 'activa',
+            UNIQUE(chat_key)
+        )""",
+    ]:
+        try:
+            conn.execute(sql)
+            conn.commit()
+        except Exception:
+            pass
+    # Sanear NULL en division/temporada de gi_marcador (registros anteriores a la migración)
+    try:
+        conn.execute("UPDATE gi_marcador SET division=1 WHERE division IS NULL")
+        conn.execute("UPDATE gi_marcador SET temporada=1 WHERE temporada IS NULL")
+        conn.execute("UPDATE gi_marcador SET victorias_temp=0 WHERE victorias_temp IS NULL")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 def get_conn():
@@ -4170,10 +4198,6 @@ async def _fin_grupo_gana(chat_key, ctx, jugadores, impostores, palabra, categor
         if tarea_abv3 and tarea_abv3 is not tarea_actual: tarea_abv3.cancel()
         tarea_tv3 = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
         if tarea_tv3 and tarea_tv3 is not tarea_actual: tarea_tv3.cancel()
-        tarea_abv3 = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
-        if tarea_abv3 and tarea_abv3 is not tarea_actual: tarea_abv3.cancel()
-        tarea_tv3 = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
-        if tarea_tv3 and tarea_tv3 is not tarea_actual: tarea_tv3.cancel()
 
         impostor_ids_set = set(j[0] for j in impostores)
         multiplicador = ctx.bot_data.pop(f"multiplicador_{chat_key}", 1)
@@ -5242,6 +5266,7 @@ GI_TEXTOS = {
         "gi_reset_ok":          "🔄 Marcador de Adivina la Idol reseteado\\.",
         "gi_cancelado":         "❌ Ronda cancelada\\.",
         "gi_no_ronda":          "⚠️ No hay ronda activa en este grupo\\.",
+        "gi_div_incorrecta":    "❌ Esta ronda es solo para {div}\\.",
     },
     "en": {
         "gi_no_owner":          "⚠️ Only the bot creator can use this command\\.",
@@ -5286,10 +5311,50 @@ GI_TEXTOS = {
         "gi_reset_ok":          "🔄 Guess the Idol scoreboard reset\\.",
         "gi_cancelado":         "❌ Round cancelled\\.",
         "gi_no_ronda":          "⚠️ No active round in this group\\.",
+        "gi_div_incorrecta":    "❌ This round is only for {div}\\.",
     }
 }
 
 # ── DB helpers GI ─────────────────────────────────────────────
+
+def gi_get_temporada(chat_key: str) -> int:
+    """Retorna el número de temporada actual del grupo (crea si no existe)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT numero FROM gi_temporada WHERE chat_key=?", (chat_key,)
+        ).fetchone()
+        if not row:
+            conn.execute(
+                "INSERT OR IGNORE INTO gi_temporada (chat_key, numero, estado) VALUES (?,1,'activa')",
+                (chat_key,)
+            )
+            return 1
+        return row[0]
+
+
+def gi_get_division(chat_key: str, user_id: int) -> int:
+    """Retorna la división del jugador (1 o 2). Si no existe, devuelve 2 (nueva incorporación)."""
+    temporada = gi_get_temporada(chat_key)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT division FROM gi_marcador WHERE chat_key=? AND user_id=?",
+            (chat_key, user_id)
+        ).fetchone()
+    if not row:
+        # Primera temporada → todos en primera. Posteriores → segunda
+        return 1 if temporada == 1 else 2
+    return row[0]
+
+
+def gi_segunda_existe(chat_key: str) -> bool:
+    """Retorna True si ya existe segunda división en este grupo."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM gi_marcador WHERE chat_key=? AND division=2",
+            (chat_key,)
+        ).fetchone()
+    return row[0] > 0 if row else False
+
 
 def gi_grupo_activo(chat_id: int) -> bool:
     """Retorna True si el juego GI está activo en este grupo.
@@ -5367,7 +5432,14 @@ def gi_upsert_participante(ronda_id: int, chat_key: str, user_id: int, username:
     """Retorna True si fue añadido, False si ya existía."""
     if gi_get_participante(ronda_id, user_id):
         return False
+    # Registrar en marcador si es nuevo (con división correcta)
+    temporada = gi_get_temporada(chat_key)
+    division = gi_get_division(chat_key, user_id)
     with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias, division, temporada, victorias_temp) VALUES (?,?,?,0,0,?,?,0)",
+            (chat_key, user_id, username, division, temporada)
+        )
         conn.execute(
             "INSERT OR IGNORE INTO gi_participantes (ronda_id, chat_key, user_id, username, vidas, activo) VALUES (?,?,?,?,5,1)",
             (ronda_id, chat_key, user_id, username)
@@ -5395,12 +5467,15 @@ def gi_restar_vida(ronda_id: int, user_id: int) -> int:
 
 def gi_sumar_puntos(chat_key: str, user_id: int, username: str, puntos: int):
     with get_conn() as conn:
+        # INSERT con division correcta (solo aplica si no existe aún)
+        div_actual = gi_get_division(chat_key, user_id)
+        temp_actual = gi_get_temporada(chat_key)
         conn.execute(
-            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias) VALUES (?,?,?,0,0)",
-            (chat_key, user_id, username)
+            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias, division, temporada, victorias_temp) VALUES (?,?,?,0,0,?,?,0)",
+            (chat_key, user_id, username, div_actual, temp_actual)
         )
         conn.execute(
-            "UPDATE gi_marcador SET puntos=puntos+?, victorias=victorias+1, username=? WHERE chat_key=? AND user_id=?",
+            "UPDATE gi_marcador SET puntos=puntos+?, victorias=victorias+1, victorias_temp=victorias_temp+1, username=? WHERE chat_key=? AND user_id=?",
             (puntos, username, chat_key, user_id)
         )
 
@@ -5429,6 +5504,8 @@ def gi_build_setup_text(setup: dict, lang: str) -> str:
     ini_v    = f"*{esc(_formato_fecha_hora_local(setup['inicio_ts'], tz))}*" if setup.get("inicio_ts") else no_conf
     fin_v    = f"*{esc(_formato_fecha_hora_local(setup['fin_ts'], tz))}*" if setup.get("fin_ts") else no_conf
     tz_v     = f"*{esc(_tz_label(tz))}*"
+    div      = setup.get("division", 1)
+    div_v    = f"*🥇 Primera División*" if div == 1 else f"*🥈 Segunda División*"
 
     if lang == "es":
         titulo = "🎤 *Programar: Adivina la Idol*"
@@ -5447,7 +5524,8 @@ def gi_build_setup_text(setup: dict, lang: str) -> str:
         f"🎤 Pista 3 \\(grupo\\): {h3_v}\n"
         f"⏰ Inicio: {ini_v}\n"
         f"⏹ Fin: {fin_v}\n"
-        f"🌐 Zona horaria: {tz_v}\n\n"
+        f"🌐 Zona horaria: {tz_v}\n"
+        f"🏆 División: {div_v}\n\n"
         f"{nota}"
     )
 
@@ -5546,6 +5624,12 @@ def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
             InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
         ],
         [InlineKeyboardButton(lbl_prev, callback_data="gi:setup:preview")],
+    ]
+    div = setup.get("division", 1)
+    lbl_div = ("🥈 Cambiar a Segunda División" if div == 1 else "🥇 Cambiar a Primera División") if lang == "es" else \
+              ("🥈 Switch to Second Division" if div == 1 else "🥇 Switch to First Division")
+    rows += [
+        [InlineKeyboardButton(lbl_div, callback_data="gi:setup:division")],
         [
             InlineKeyboardButton(lbl_pub, callback_data="gi:setup:publicar"),
             InlineKeyboardButton(lbl_can, callback_data="gi:setup:cancelar"),
@@ -5629,9 +5713,10 @@ async def _gi_countdown(prog_id: int, bot, bot_data: dict):
                 with get_conn() as conn:
                     conn.execute(
                         "INSERT INTO gi_rondas (prog_id,chat_key,chat_id,idol_name,file_id,file_id_reveal,hint1,hint2,hint3,"
-                        "inicio_ts,fin_ts,estado,pistas_dadas,puntos_actuales,mensaje_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,'activa',0,5,?)",
+                        "inicio_ts,fin_ts,estado,pistas_dadas,puntos_actuales,mensaje_id,division) VALUES (?,?,?,?,?,?,?,?,?,?,?,'activa',0,5,?,?)",
                         (prog_id, chat_key, chat_id, prog[1], prog[2], prog[3], prog[4], prog[5],
-                         prog[6], prog[7], prog[8], msg.message_id)
+                         prog[6], prog[7], prog[8], msg.message_id,
+                         prog[11] if len(prog) > 11 and prog[11] is not None else 1)
                     )
                     ronda_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -5860,7 +5945,6 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     grupos_activos.sort(key=lambda x: x[1])
-    grupos_activos.sort(key=lambda x: x[1])
 
     # Un solo mensaje con lista + botones por grupo
     lineas = []
@@ -5906,7 +5990,8 @@ async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "file_id": None, "file_id_reveal": None, "idol_name": None,
         "hint1": None, "hint2": None, "hint3": None,
         "inicio_ts": None, "fin_ts": None,
-        "tz_offset": 0, "esperando": None, "mensaje_id": None, "lang": lang
+        "tz_offset": 0, "esperando": None, "mensaje_id": None, "lang": lang,
+        "division": 1
     }
     ctx.bot_data[f"gi_setup_{user.id}"] = setup
     text     = gi_build_setup_text(setup, lang)
@@ -5918,25 +6003,250 @@ async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     setup["mensaje_id"] = msg.message_id
 
 
+
+async def gi_cmd_fintemporada(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Cierra la temporada actual y aplica ascensos/descensos."""
+    user = update.effective_user
+    chat = update.effective_chat
+    if not BOT_OWNER_ID or user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
+        return
+
+    chat_key = get_chat_key(update)
+    lang     = get_idioma(chat_key)
+
+    with get_conn() as conn:
+        todos = conn.execute(
+            "SELECT user_id, username, puntos, division, victorias_temp "
+            "FROM gi_marcador WHERE chat_key=? ORDER BY puntos DESC",
+            (chat_key,)
+        ).fetchall()
+
+    if not todos:
+        await update.message.reply_text("❌ No hay jugadores registrados en este grupo.")
+        return
+
+    temporada_actual = gi_get_temporada(chat_key)
+    segunda_existe   = gi_segunda_existe(chat_key)
+
+    div1 = [(r[0], r[1], r[2], r[4]) for r in todos if r[3] == 1]
+    div2 = [(r[0], r[1], r[2], r[4]) for r in todos if r[3] == 2]
+
+    # ── Primera temporada: crear las dos divisiones ──
+    if not segunda_existe:
+        n = len(todos)
+        corte = (n + 1) // 2  # impar → el del medio va a primera
+        primera = [r[0] for r in todos[:corte]]
+        segunda = [r[0] for r in todos[corte:]]
+        with get_conn() as conn:
+            for uid in primera:
+                conn.execute(
+                    "UPDATE gi_marcador SET division=1, puntos=0, victorias_temp=0, temporada=? WHERE chat_key=? AND user_id=?",
+                    (temporada_actual + 1, chat_key, uid)
+                )
+            for uid in segunda:
+                conn.execute(
+                    "UPDATE gi_marcador SET division=2, puntos=0, victorias_temp=0, temporada=? WHERE chat_key=? AND user_id=?",
+                    (temporada_actual + 1, chat_key, uid)
+                )
+            conn.execute(
+                "INSERT OR REPLACE INTO gi_temporada (chat_key, numero, estado) VALUES (?,?,'activa')",
+                (chat_key, temporada_actual + 1)
+            )
+        nombres_primera = ", ".join(r[1] for r in todos[:corte])
+        nombres_segunda = ", ".join(r[1] for r in todos[corte:])
+        texto = (
+            f"🏆 *Temporada {temporada_actual} cerrada*\n\n"
+            f"🥇 *Primera División* \\({len(primera)}\\):\n_{esc(nombres_primera)}_\n\n"
+            f"🥈 *Segunda División* \\({len(segunda)}\\):\n_{esc(nombres_segunda)}_\n\n"
+            f"⭐ Temporada {temporada_actual + 1} iniciada\\. ¡Puntos reseteados\\!"
+        )
+        await update.message.reply_text(texto, parse_mode="MarkdownV2")
+        return
+
+    # ── Temporadas siguientes: ascensos y descensos ──
+    # Inactivos de primera (0 victorias en la temporada)
+    inactivos_div1 = [r for r in div1 if r[3] == 0]
+    activos_div1   = [r for r in div1 if r[3] >  0]
+
+    # Los últimos 3 activos de primera bajan
+    activos_div1_sorted = sorted(activos_div1, key=lambda r: r[2])  # asc por puntos
+    bajan_activos = activos_div1_sorted[:3]
+    bajan = [r[0] for r in bajan_activos] + [r[0] for r in inactivos_div1]
+
+    # Calcular cuántos suben para equilibrar
+    n_div1_nuevo = len(div1) - len(bajan)
+    n_div2       = len(div2)
+    total        = n_div1_nuevo + n_div2
+    objetivo_div1 = (total + 1) // 2  # impar → primera tiene más
+    suben_n      = max(0, objetivo_div1 - n_div1_nuevo)
+
+    # Los mejores de segunda suben
+    div2_sorted = sorted(div2, key=lambda r: r[2], reverse=True)
+    suben       = [r[0] for r in div2_sorted[:suben_n]]
+
+    with get_conn() as conn:
+        for uid in bajan:
+            conn.execute(
+                "UPDATE gi_marcador SET division=2, puntos=0, victorias_temp=0, temporada=? WHERE chat_key=? AND user_id=?",
+                (temporada_actual + 1, chat_key, uid)
+            )
+        for uid in suben:
+            conn.execute(
+                "UPDATE gi_marcador SET division=1, puntos=0, victorias_temp=0, temporada=? WHERE chat_key=? AND user_id=?",
+                (temporada_actual + 1, chat_key, uid)
+            )
+        # Los que se quedan: solo resetear puntos
+        todos_ids = set(r[0] for r in todos)
+        movidos   = set(bajan + suben)
+        quedan    = todos_ids - movidos
+        for uid in quedan:
+            conn.execute(
+                "UPDATE gi_marcador SET puntos=0, victorias_temp=0, temporada=? WHERE chat_key=? AND user_id=?",
+                (temporada_actual + 1, chat_key, uid)
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO gi_temporada (chat_key, numero, estado) VALUES (?,?,'activa')",
+            (chat_key, temporada_actual + 1)
+        )
+
+    def nombres(ids):
+        mapping = {r[0]: r[1] for r in todos}
+        return ", ".join(mapping.get(uid, str(uid)) for uid in ids) or "—"
+
+    texto = (
+        f"🏆 *Temporada {temporada_actual} cerrada*\n\n"
+        f"⬇️ *Descienden a Segunda* \\({len(bajan)}\\):\n_{esc(nombres(bajan))}_\n\n"
+        f"⬆️ *Ascienden a Primera* \\({len(suben)}\\):\n_{esc(nombres(suben))}_\n\n"
+        f"⭐ Temporada {temporada_actual + 1} iniciada\\. ¡Puntos reseteados\\!"
+    )
+    await update.message.reply_text(texto, parse_mode="MarkdownV2")
+
+
+def generar_imagen_giscore(chat_key: str, division: int):
+    """Genera imagen PNG del marcador de Adivina la Idol para una división."""
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT user_id, username, puntos, victorias FROM gi_marcador "
+                "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC",
+                (chat_key, division)
+            ).fetchall()
+        if not rows:
+            return None
+
+        FONT_SIZE  = 22
+        font       = _get_font(FONT_SIZE)
+        font_bold  = _get_font(FONT_SIZE, bold=True)
+        font_title = _get_font(26, bold=True)
+
+        BG     = (20,  20,  36)
+        HEADER = (49,  50,  68)
+        ROW_A  = (30,  30,  50)
+        ROW_B  = (25,  25,  44)
+        TEXT   = (220, 220, 235)
+        ACCENT = (137, 180, 250)
+        GREEN  = (166, 227, 161)
+        GRAY   = (150, 150, 170)
+        GOLD   = (255, 215,   0)
+        SILVER = (192, 192, 192)
+        BRONZE = (205, 127,  50)
+        LINE   = (69,  71,  90)
+        DIV1_C = (255, 200,  50)
+        DIV2_C = (160, 160, 200)
+        div_color = DIV1_C if division == 1 else DIV2_C
+
+        lang = get_idioma(chat_key)
+        div_label = ("🥇 Primera División" if division == 1 else "🥈 Segunda División") if lang == "es"                     else ("🥇 First Division" if division == 1 else "🥈 Second Division")
+        col_pts = "Puntos" if lang == "es" else "Points"
+        col_vic = "Victorias" if lang == "es" else "Wins"
+        col_jug = "Jugador" if lang == "es" else "Player"
+
+        PAD   = 20
+        ROW_H = 38
+        COL_W = [36, 170, 80, 80]
+
+        total_w = PAD * 2 + sum(COL_W)
+        title_h = 52
+        total_h = PAD + title_h + ROW_H + ROW_H * len(rows) + PAD
+
+        img  = Image.new("RGB", (total_w, total_h), BG)
+        draw = ImageDraw.Draw(img)
+
+        draw.rectangle([0, 0, total_w, 4], fill=div_color)
+        draw.text((PAD, PAD // 2 + 4), f"  {div_label}", font=font_title, fill=div_color)
+
+        y = PAD + title_h
+        draw.rectangle([PAD, y, total_w - PAD, y + ROW_H], fill=HEADER)
+        x = PAD + 8
+        for col, w in zip(["#", col_jug, col_pts, col_vic], COL_W):
+            draw.text((x, y + 8), col, font=font_bold, fill=ACCENT)
+            x += w
+
+        for i, (uid, uname, puntos, victorias) in enumerate(rows):
+            y += ROW_H
+            draw.rectangle([PAD, y, total_w - PAD, y + ROW_H - 1], fill=ROW_A if i % 2 == 0 else ROW_B)
+            draw.line([PAD, y + ROW_H - 1, total_w - PAD, y + ROW_H - 1], fill=LINE, width=1)
+            pos = i + 1
+            x   = PAD + 8
+            pos_color = GOLD if pos == 1 else SILVER if pos == 2 else BRONZE if pos == 3 else GRAY
+            draw.text((x, y + 8), str(pos), font=font_bold, fill=pos_color)
+            x += COL_W[0]
+            draw_text_smart(draw, (x, y + 8), limpiar_nombre_tabla(uname)[:14], FONT_SIZE, TEXT)
+            x += COL_W[1]
+            draw.text((x, y + 8), str(puntos), font=font_bold, fill=GREEN)
+            x += COL_W[2]
+            draw.text((x, y + 8), str(victorias), font=font, fill=GRAY)
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        logger.error(f"[generar_imagen_giscore] error: {e}")
+        return None
+
+
 async def gi_cmd_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = get_chat_key(update)
     lang     = get_idioma(chat_key)
-    marcador = gi_get_marcador(chat_key)
-    if not marcador:
-        await update.message.reply_text(gi_t(lang, "gi_score_vacio"), parse_mode="MarkdownV2")
-        return
-    MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
-    lineas = []
-    for i, (uid, uname, puntos, victorias) in enumerate(marcador, 1):
-        med = MEDALLAS.get(i, f"{i}\\.")
-        nom = esc(limpiar_nombre_tabla(uname))
-        v_word = "victoria" if victorias == 1 else "victorias"
-        lineas.append(f"{med} *{nom}* — {puntos} pts \\({victorias} {v_word}\\)")
-    tabla = "\n".join(lineas)
-    await update.message.reply_text(
-        gi_t(lang, "gi_score_titulo").format(tabla=tabla),
-        parse_mode="MarkdownV2"
-    )
+    user     = update.effective_user
+    is_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
+    segunda  = gi_segunda_existe(chat_key)
+
+    async def _enviar_division(div: int):
+        buf = generar_imagen_giscore(chat_key, div)
+        if buf:
+            await update.message.reply_photo(photo=buf)
+        else:
+            with get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT username, puntos, victorias FROM gi_marcador "
+                    "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC",
+                    (chat_key, div)
+                ).fetchall()
+            if not rows:
+                div_lbl = ("Primera División" if div == 1 else "Segunda División") if lang == "es"                           else ("First Division" if div == 1 else "Second Division")
+                await update.message.reply_text(
+                    gi_t(lang, "gi_score_vacio") + f" ({div_lbl})",
+                    parse_mode="MarkdownV2"
+                )
+                return
+            MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
+            lineas = []
+            MEDS = {1:"🥇", 2:"🥈", 3:"🥉"}
+            for i, r in enumerate(rows, 1):
+                lineas.append(f"{MEDS.get(i, str(i))} {r[0]} - {r[1]} pts ({r[2]} victorias)")
+            await update.message.reply_text("\n".join(lineas))
+
+    if is_owner and segunda:
+        await _enviar_division(1)
+        await _enviar_division(2)
+    elif segunda:
+        div = gi_get_division(chat_key, user.id)
+        await _enviar_division(div)
+    else:
+        await _enviar_division(1)
 
 
 async def gi_cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -6218,6 +6528,10 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
+    elif action == "division":
+        setup["division"] = 2 if setup.get("division", 1) == 1 else 1
+        await query.answer()
+
     elif action in ("inicio", "fin"):
         setup["esperando"] = action
         msg = ("Escribe fecha y hora: DD/MM HH:MM (ej: 25/03 20:00)\no solo hora HH:MM para hoy/mañana"
@@ -6280,27 +6594,27 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
         editing_id = setup.get("editing_prog_id")
+        div_prog = setup.get("division", 1)
         with get_conn() as conn:
             if editing_id:
-                # Edición: actualizar registro existente
                 conn.execute(
                     "UPDATE gi_programacion SET idol_name=?,file_id=?,file_id_reveal=?,"
-                    "hint1=?,hint2=?,hint3=?,inicio_ts=?,fin_ts=?,tz_offset=?,estado='pendiente' WHERE id=?",
+                    "hint1=?,hint2=?,hint3=?,inicio_ts=?,fin_ts=?,tz_offset=?,division=?,estado='pendiente' WHERE id=?",
                     (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
                      setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"],
-                     setup.get("tz_offset", 0), editing_id)
+                     setup.get("tz_offset", 0), div_prog, editing_id)
                 )
                 prog_id = editing_id
-                # Cancelar countdown anterior
                 old_task = ctx.bot_data.pop(f"gi_countdown_{prog_id}", None)
                 if old_task:
                     old_task.cancel()
             else:
                 conn.execute(
-                    "INSERT INTO gi_programacion (idol_name,file_id,file_id_reveal,hint1,hint2,hint3,inicio_ts,fin_ts,tz_offset,estado) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,'pendiente')",
+                    "INSERT INTO gi_programacion (idol_name,file_id,file_id_reveal,hint1,hint2,hint3,inicio_ts,fin_ts,tz_offset,division,estado) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente')",
                     (setup["idol_name"], setup["file_id"], setup["file_id_reveal"], setup["hint1"],
-                     setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"], setup.get("tz_offset", 0))
+                     setup["hint2"], setup["hint3"], setup["inicio_ts"], setup["fin_ts"],
+                     setup.get("tz_offset", 0), div_prog)
                 )
                 prog_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -6364,6 +6678,19 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_key = ronda[2]  # usar chat_key real de la ronda
     ronda_id = ronda[0]
 
+    # Verificar división del jugador vs división de la ronda
+    div_ronda = ronda[18] if len(ronda) > 18 and ronda[18] else 1
+    if action == "gi:participar" and gi_segunda_existe(chat_key):
+        div_jugador = gi_get_division(chat_key, user.id)
+        if div_jugador != div_ronda:
+            nombre_div = ("Primera División" if div_ronda == 1 else "Segunda División") if lang == "es" \
+                         else ("First Division" if div_ronda == 1 else "Second Division")
+            msg_div = gi_t(lang, "gi_div_incorrecta").format(div=nombre_div)
+            # Quitar escapes de MarkdownV2 para show_alert (Telegram no acepta MD aquí)
+            msg_div_plain = msg_div.replace("\\.", ".").replace("\\", "")
+            await query.answer(msg_div_plain, show_alert=True)
+            return
+
     if action == "gi:participar":
         participante = gi_get_participante(ronda_id, user.id)
         if participante:
@@ -6423,10 +6750,12 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("La ronda ya terminó.", show_alert=True)
         return
 
+    # Usar chat_key real de la ronda (correcto en foros/topics)
+    chat_key        = ronda[2]
     idol_name       = ronda[4]
     file_id_reveal  = ronda[6]
     puntos_actuales = ronda[14]
-    chat_id         = query.message.chat.id
+    chat_id         = ronda[3]
     msg_id_ronda    = ronda[17]
 
     await query.answer()
@@ -6602,6 +6931,7 @@ def main():
     app.add_handler(CommandHandler("gireset",           gi_cmd_reset))
     app.add_handler(CommandHandler("gicancel",          gi_cmd_cancelar))
     app.add_handler(CommandHandler("giprog",             gi_cmd_cancelar_prog))
+    app.add_handler(CommandHandler("fintemporada",       gi_cmd_fintemporada))
 
     app.add_handler(CallbackQueryHandler(btn_cancelar_lobby,    pattern="^cancelar_lobby$"))
     app.add_handler(CallbackQueryHandler(btn_unirse,          pattern="^unirse$"))
