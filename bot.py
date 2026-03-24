@@ -3118,6 +3118,10 @@ async def _abrir_votacion(chat_key, ctx, message):
         parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    # Cancelar timer previo si existe (evita doble resolución)
+    prev_tv = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+    if prev_tv:
+        prev_tv.cancel()
     # Lanzar timer de 1 minuto para auto-resolver
     chat_id = message.chat.id
     thread_id = get_thread_id(chat_key)
@@ -3159,6 +3163,9 @@ async def cmd_votar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(chat_key, "solo_creador_votar"))
         return
 
+    # Cancelar timer de auto-abrir si existe
+    tav = ctx.bot_data.pop(f"timer_abrir_votacion_{chat_key}", None)
+    if tav: tav.cancel()
     await _abrir_votacion(chat_key, ctx, update.message)
 
 
@@ -3198,6 +3205,9 @@ async def btn_voto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
     if len(votos) >= len(vivos):
+        # Cancelar timer de auto-resolver (ya se resuelve ahora)
+        tv = ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+        if tv: tv.cancel()
         await resolver_votacion(chat_key, ctx, partida, jugadores, vivos, votos, query.message)
 
 
@@ -5816,9 +5826,20 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     link = await ctx.bot.export_chat_invite_link(chat_id)
                 except Exception:
                     pass
+            # Verificar si el bot puede enviar mensajes
+            puede_escribir = False
+            try:
+                bot_member = await ctx.bot.get_chat_member(chat_id, ctx.bot.id)
+                if bot_member.status == "administrator":
+                    puede_escribir = True
+                elif bot_member.status == "member":
+                    perms = getattr(chat_obj, "permissions", None)
+                    puede_escribir = perms is None or getattr(perms, "can_send_messages", True)
+            except Exception:
+                puede_escribir = False
             # Usar el título actualizado de Telegram
             title_real = chat_obj.title or title
-            grupos_activos.append((chat_id, title_real, link))
+            grupos_activos.append((chat_id, title_real, link, puede_escribir))
             # Actualizar título en DB si cambió
             if title_real != title:
                 with get_conn() as conn:
@@ -5843,7 +5864,7 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Un solo mensaje con lista + botones por grupo
     lineas = []
-    for i, (chat_id, title, link) in enumerate(grupos_activos, 1):
+    for i, (chat_id, title, link, puede_escribir) in enumerate(grupos_activos, 1):
         gi_on = gi_grupo_activo(chat_id)
         estado_icon = "🎤" if gi_on else "🔇"
         lineas.append(f"  {i}\\. {estado_icon} *{esc(title)}*")
@@ -5853,14 +5874,14 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Botones: una fila por grupo con sus acciones
     keyboard = []
-    for chat_id, title, link in grupos_activos:
+    for chat_id, title, link, puede_escribir in grupos_activos:
         gi_on = gi_grupo_activo(chat_id)
         toggle_lbl = "🔇" if gi_on else "🎤"
         title_short = title[:20] + "…" if len(title) > 20 else title
-        row = [
-            InlineKeyboardButton(f"💬 {title_short}", callback_data=f"owner:msg:{chat_id}"),
-            InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}"),
-        ]
+        row = []
+        if puede_escribir:
+            row.append(InlineKeyboardButton(f"💬 {title_short}", callback_data=f"owner:msg:{chat_id}"))
+        row.append(InlineKeyboardButton(toggle_lbl, callback_data=f"gi:toggle:{chat_id}"))
         if link:
             row.append(InlineKeyboardButton("🔗", url=link))
         keyboard.append(row)
