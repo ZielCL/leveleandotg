@@ -5386,16 +5386,18 @@ def gi_toggle_grupo(chat_id: int) -> bool:
 
 def gi_registrar_grupo(chat_id: int, chat_title: str, chat_key: str):
     try:
+        # Siempre guardar el chat_key raíz (sin topic) para que la normalización funcione
+        chat_key_root = str(chat_id)
         with get_conn() as conn:
-            # INSERT OR IGNORE preserva gi_activo si el grupo ya existía
+            # INSERT OR IGNORE preserva gi_activo y chat_key si el grupo ya existía
             conn.execute(
                 "INSERT OR IGNORE INTO gi_grupos (chat_id, chat_title, chat_key, gi_activo, ultimo_msg) VALUES (?,?,?,1,CURRENT_TIMESTAMP)",
-                (chat_id, chat_title or "?", chat_key)
+                (chat_id, chat_title or "?", chat_key_root)
             )
-            # Actualizar solo título, key y timestamp — sin tocar gi_activo
+            # Actualizar solo título y timestamp — NO tocar chat_key ni gi_activo
             conn.execute(
-                "UPDATE gi_grupos SET chat_title=?, chat_key=?, ultimo_msg=CURRENT_TIMESTAMP WHERE chat_id=?",
-                (chat_title or "?", chat_key, chat_id)
+                "UPDATE gi_grupos SET chat_title=?, ultimo_msg=CURRENT_TIMESTAMP WHERE chat_id=?",
+                (chat_title or "?", chat_id)
             )
     except Exception:
         pass
@@ -6024,7 +6026,7 @@ async def gi_cmd_fintemporada(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
         return
 
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     lang     = get_idioma(chat_key)
 
     with get_conn() as conn:
@@ -6271,7 +6273,7 @@ async def gi_cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if user.id != BOT_OWNER_ID:
         await update.message.reply_text("⚠️ Solo el creador del bot puede resetear el marcador.")
         return
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     lang = get_idioma(chat_key)
     with get_conn() as conn:
         conn.execute("DELETE FROM gi_marcador WHERE chat_key=?", (chat_key,))
@@ -6285,7 +6287,7 @@ async def gi_cmd_reset_puntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if user.id != BOT_OWNER_ID:
         await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
         return
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     lang = get_idioma(chat_key)
     with get_conn() as conn:
         affected = conn.execute(
@@ -6308,7 +6310,7 @@ async def gi_cmd_addpuntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u26a0\ufe0f Solo el creador del bot puede usar este comando.")
         return
 
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     args = ctx.args or []
 
     if len(args) < 3:
@@ -6414,7 +6416,7 @@ async def gi_cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if user.id != BOT_OWNER_ID:
         await update.message.reply_text("⚠️ Solo el creador del bot puede cancelar una ronda.")
         return
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     lang  = get_idioma(chat_key)
     ronda = gi_get_ronda_activa(chat_key)
     if not ronda:
