@@ -6221,18 +6221,20 @@ async def gi_cmd_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     (chat_key, div)
                 ).fetchall()
             if not rows:
-                div_lbl = ("Primera División" if div == 1 else "Segunda División") if lang == "es"                           else ("First Division" if div == 1 else "Second Division")
+                div_lbl = ("Primera División" if div == 1 else "Segunda División") if lang == "es" \
+                          else ("First Division" if div == 1 else "Second Division")
                 await update.message.reply_text(
-                    gi_t(lang, "gi_score_vacio") + f" ({div_lbl})",
+                    gi_t(lang, "gi_score_vacio") + f" \\({esc(div_lbl)}\\)",
                     parse_mode="MarkdownV2"
                 )
                 return
-            MEDALLAS = {1: "🥇", 2: "🥈", 3: "🥉"}
+            MEDS = {1: "🥇", 2: "🥈", 3: "🥉"}
             lineas = []
-            MEDS = {1:"🥇", 2:"🥈", 3:"🥉"}
             for i, r in enumerate(rows, 1):
-                lineas.append(f"{MEDS.get(i, str(i))} {r[0]} - {r[1]} pts ({r[2]} victorias)")
-            await update.message.reply_text("\n".join(lineas))
+                pts_lbl  = "pts" if lang == "es" else "pts"
+                vic_lbl  = "victorias" if lang == "es" else "wins"
+                lineas.append(f"{MEDS.get(i, str(i))} *{esc(r[0])}* \\- {r[1]} {pts_lbl} \\({r[2]} {vic_lbl}\\)")
+            await update.message.reply_text("\n".join(lineas), parse_mode="MarkdownV2")
 
     if is_owner and segunda:
         await _enviar_division(1)
