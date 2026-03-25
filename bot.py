@@ -692,7 +692,7 @@ TEXTOS = {
         "votacion_auto":            "⏰ *Voting opened automatically\\!*\n\n_Alive players \\({n}\\) — 1 minute to vote:_",
         "votos_insuficientes":      "⚠️ *Nobody reached 2 votes*\n\nVoting reopened\\.",
         "votos_timeout":            "⏰ *Voting time expired*\n\n",
-        "empate":                   "⚖️ *Tie\\!*\n\n{nombres} have *{n} votes* each\\.\n\n🔁 *Re-vote* — Only tied players:\n_Alive players, vote again:_",
+        "empate":                   "⚖️ *Tie\\!*\n\n{nombres} have *{n} votes* each\\.\n\n🔁 *Re\\-vote* — Only tied players:\n_Alive players, vote again:_",
         "nuevo_creador":            "👑 *{nombre}* is the new creator and can open voting\\.",
         "resultado_votacion":       "🗳️ *Voting result:*\n\nThe group voted for *{nombre}*\n{etiqueta}\n\n*Votes:*\n{detalle}",
         "era_impostor":             "🕵️ Was an impostor\\!",
