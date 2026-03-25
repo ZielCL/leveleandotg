@@ -3953,7 +3953,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     if gi_part_check[5] <= 0:            # sin vidas
                         return
                     lang_gi2 = get_idioma(chat_key)
-                    ctx.bot_data[f"gi_intento_{chat_key}_{user.id}"] = texto
+                    ctx.bot_data[f"gi_intento_{user.id}_{gi_ronda_id}"] = texto
                     kbd_gi2 = [
                         [InlineKeyboardButton(
                             gi_t(lang_gi2, "gi_confirmar_btn"),
@@ -6279,6 +6279,94 @@ async def gi_cmd_reset_puntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 
+async def gi_cmd_addpuntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Suma puntos y victorias a un jugador manualmente.
+    Uso: /giaddpuntos @usuario <puntos> <victorias>
+    """
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("\u26a0\ufe0f Solo el creador del bot puede usar este comando.")
+        return
+
+    chat_key = get_chat_key(update)
+    args = ctx.args or []
+
+    if len(args) < 3:
+        await update.message.reply_text(
+            "\u26a0\ufe0f Uso: `/giaddpuntos @usuario <puntos> <victorias>`\n"
+            "Ejemplo: `/giaddpuntos @Maria 5 1`",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        puntos_add    = int(args[-2])
+        victorias_add = int(args[-1])
+    except ValueError:
+        await update.message.reply_text("\u26a0\ufe0f Los puntos y victorias deben ser n\u00fameros enteros.")
+        return
+
+    target_id   = None
+    target_name = None
+
+    if update.message.entities:
+        for e in update.message.entities:
+            if e.type == "text_mention" and e.user:
+                target_id   = e.user.id
+                target_name = e.user.first_name
+                break
+
+    if target_id is None:
+        busqueda = args[0].lstrip("@")
+        if busqueda.isdigit():
+            target_id = int(busqueda)
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT username FROM gi_marcador WHERE chat_key=? AND user_id=?",
+                    (chat_key, target_id)
+                ).fetchone()
+            target_name = row[0] if row else str(target_id)
+        else:
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT user_id, username FROM gi_marcador "
+                    "WHERE chat_key=? AND LOWER(username) LIKE LOWER(?) LIMIT 1",
+                    (chat_key, f"%{busqueda}%")
+                ).fetchone()
+            if row:
+                target_id, target_name = row[0], row[1]
+
+    if target_id is None:
+        await update.message.reply_text(
+            f"⚠️ No encontré a *{esc(args[0])}* en el marcador de este grupo\\.",
+            parse_mode="MarkdownV2"
+        )
+        return
+
+    div_actual  = gi_get_division(chat_key, target_id)
+    temp_actual = gi_get_temporada(chat_key)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias, division, temporada, victorias_temp) VALUES (?,?,?,0,0,?,?,0)",
+            (chat_key, target_id, target_name, div_actual, temp_actual)
+        )
+        conn.execute(
+            "UPDATE gi_marcador SET puntos=puntos+?, victorias=victorias+?, victorias_temp=victorias_temp+? WHERE chat_key=? AND user_id=?",
+            (puntos_add, victorias_add, victorias_add, chat_key, target_id)
+        )
+        row = conn.execute(
+            "SELECT puntos, victorias FROM gi_marcador WHERE chat_key=? AND user_id=?",
+            (chat_key, target_id)
+        ).fetchone()
+
+    total_pts = row[0] if row else "?"
+    total_vic = row[1] if row else "?"
+    await update.message.reply_text(
+        f"\u2705 *{esc(target_name)}* \\+{puntos_add} pts, \\+{victorias_add} vic\n"
+        f"_Total: {total_pts} pts \u00b7 {total_vic} victorias_",
+        parse_mode="MarkdownV2"
+    )
+
 async def gi_cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != BOT_OWNER_ID:
@@ -6754,7 +6842,7 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("Esta confirmación no es tuya.", show_alert=True)
         return
 
-    intento_key = f"gi_intento_{chat_key}_{user.id}"
+    intento_key = f"gi_intento_{target_uid}_{ronda_id}"
     respuesta   = ctx.bot_data.pop(intento_key, None)
     if not respuesta:
         await query.answer()
@@ -6949,6 +7037,7 @@ def main():
     app.add_handler(CommandHandler("giscore",           gi_cmd_score))
     app.add_handler(CommandHandler("gireset",           gi_cmd_reset))
     app.add_handler(CommandHandler("giresetnow",        gi_cmd_reset_puntos))
+    app.add_handler(CommandHandler("giaddpuntos",       gi_cmd_addpuntos))
     app.add_handler(CommandHandler("gicancel",          gi_cmd_cancelar))
     app.add_handler(CommandHandler("giprog",             gi_cmd_cancelar_prog))
     app.add_handler(CommandHandler("fintemporada",       gi_cmd_fintemporada))
