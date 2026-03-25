@@ -5460,7 +5460,24 @@ def gi_restar_vida(ronda_id: int, user_id: int) -> int:
         ).fetchone()
     return row[0] if row else 0
 
+def gi_normalizar_chat_key(chat_key: str) -> str:
+    """Convierte cualquier chat_key de topic (-ID_TOPIC) al chat_key raíz registrado en gi_grupos."""
+    try:
+        chat_id_num = int(chat_key.split("_")[0])
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT chat_key FROM gi_grupos WHERE chat_id=?", (chat_id_num,)
+            ).fetchone()
+        if row:
+            return row[0]
+    except Exception:
+        pass
+    return chat_key
+
+
 def gi_sumar_puntos(chat_key: str, user_id: int, username: str, puntos: int):
+    # Normalizar chat_key para evitar inconsistencias entre topics del mismo foro
+    chat_key = gi_normalizar_chat_key(chat_key)
     with get_conn() as conn:
         # INSERT con division correcta (solo aplica si no existe aún)
         div_actual = gi_get_division(chat_key, user_id)
@@ -6127,6 +6144,7 @@ def generar_imagen_giscore(chat_key: str, division: int):
                 "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC",
                 (chat_key, division)
             ).fetchall()
+
         if not rows:
             return None
 
@@ -6205,7 +6223,7 @@ def generar_imagen_giscore(chat_key: str, division: int):
 
 
 async def gi_cmd_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_key = get_chat_key(update)
+    chat_key = gi_normalizar_chat_key(get_chat_key(update))
     lang     = get_idioma(chat_key)
     user     = update.effective_user
     is_owner = bool(BOT_OWNER_ID and user.id == BOT_OWNER_ID)
