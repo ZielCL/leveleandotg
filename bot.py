@@ -5429,17 +5429,12 @@ def gi_get_participante(ronda_id: int, user_id: int):
         ).fetchone()
 
 def gi_upsert_participante(ronda_id: int, chat_key: str, user_id: int, username: str) -> bool:
-    """Retorna True si fue añadido, False si ya existía."""
+    """Retorna True si fue añadido, False si ya existía.
+    Solo registra en gi_participantes; gi_marcador se crea únicamente si gana puntos.
+    """
     if gi_get_participante(ronda_id, user_id):
         return False
-    # Registrar en marcador si es nuevo (con división correcta)
-    temporada = gi_get_temporada(chat_key)
-    division = gi_get_division(chat_key, user_id)
     with get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO gi_marcador (chat_key, user_id, username, puntos, victorias, division, temporada, victorias_temp) VALUES (?,?,?,0,0,?,?,0)",
-            (chat_key, user_id, username, division, temporada)
-        )
         conn.execute(
             "INSERT OR IGNORE INTO gi_participantes (ronda_id, chat_key, user_id, username, vidas, activo) VALUES (?,?,?,?,5,1)",
             (ronda_id, chat_key, user_id, username)
@@ -6435,7 +6430,7 @@ async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # prog: id(0) idol_name(1) file_id(2) file_id_reveal(3) hint1(4) hint2(5) hint3(6)
-    #       inicio_ts(7) fin_ts(8) tz_offset(9) estado(10)
+    #       inicio_ts(7) fin_ts(8) tz_offset(9) estado(10) division(11)
     lang = "es"
     setup = {
         "file_id":       prog[2],
@@ -6450,6 +6445,7 @@ async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "esperando":     None,
         "mensaje_id":    None,
         "lang":          lang,
+        "division":      (prog[11] if len(prog) > 11 and prog[11] is not None else 1),
         "editing_prog_id": prog_id,  # flag: estamos editando, no creando
     }
     ctx.bot_data[f"gi_setup_{user.id}"] = setup
