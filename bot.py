@@ -6152,7 +6152,7 @@ def generar_imagen_giscore(chat_key: str, division: int):
         div_color = DIV1_C if division == 1 else DIV2_C
 
         lang = get_idioma(chat_key)
-        div_label = ("🥇 Primera División" if division == 1 else "🥈 Segunda División") if lang == "es"                     else ("🥇 First Division" if division == 1 else "🥈 Second Division")
+        div_label = ("1a Division" if division == 1 else "2a Division") if lang == "es"                     else ("1st Division" if division == 1 else "2nd Division")
         col_pts = "Pts"
         col_vic = "Vic" if lang == "es" else "W"
         col_jug = "Jugador" if lang == "es" else "Player"
@@ -6168,8 +6168,10 @@ def generar_imagen_giscore(chat_key: str, division: int):
         img  = Image.new("RGB", (total_w, total_h), BG)
         draw = ImageDraw.Draw(img)
 
-        draw.rectangle([0, 0, total_w, 4], fill=div_color)
-        draw.text((PAD, PAD // 2 + 4), f"  {div_label}", font=font_title, fill=div_color)
+        # Barra superior + barra lateral izquierda como indicador de división
+        draw.rectangle([0, 0, total_w, 5], fill=div_color)
+        draw.rectangle([0, 0, 6, title_h], fill=div_color)
+        draw.text((PAD + 8, PAD // 2 + 4), div_label, font=font_title, fill=div_color)
 
         y = PAD + title_h
         draw.rectangle([PAD, y, total_w - PAD, y + ROW_H], fill=HEADER)
@@ -6337,15 +6339,26 @@ async def gi_cmd_addpuntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if row:
                 target_id, target_name = row[0], row[1]
             else:
-                # Fallback: buscar en gi_participantes (usuarios nuevos que nunca ganaron)
+                # Fallback: buscar en gi_participantes sin filtrar por chat_key
+                # (el chat_key puede no coincidir si la ronda fue en otro contexto)
                 with get_conn() as conn:
                     row = conn.execute(
                         "SELECT user_id, username FROM gi_participantes "
-                        "WHERE chat_key=? AND LOWER(username) LIKE LOWER(?) LIMIT 1",
-                        (chat_key, f"%{busqueda}%")
+                        "WHERE LOWER(username) LIKE LOWER(?) LIMIT 1",
+                        (f"%{busqueda}%",)
                     ).fetchone()
                 if row:
                     target_id, target_name = row[0], row[1]
+                else:
+                    # Último recurso: buscar en jugadores del Impostor
+                    with get_conn() as conn:
+                        row = conn.execute(
+                            "SELECT user_id, username FROM jugadores "
+                            "WHERE LOWER(username) LIKE LOWER(?) LIMIT 1",
+                            (f"%{busqueda}%",)
+                        ).fetchone()
+                    if row:
+                        target_id, target_name = row[0], row[1]
 
     if target_id is None:
         await update.message.reply_text(
