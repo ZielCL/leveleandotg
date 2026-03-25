@@ -6256,6 +6256,27 @@ async def gi_cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(gi_t(lang, "gi_reset_ok"), parse_mode="MarkdownV2")
 
 
+async def gi_cmd_reset_puntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Resetea puntos y victorias_temp de todos los jugadores del grupo,
+    manteniendo sus divisiones y temporada intactas."""
+    user = update.effective_user
+    if user.id != BOT_OWNER_ID:
+        await update.message.reply_text("⚠️ Solo el creador del bot puede usar este comando.")
+        return
+    chat_key = get_chat_key(update)
+    lang = get_idioma(chat_key)
+    with get_conn() as conn:
+        affected = conn.execute(
+            "UPDATE gi_marcador SET puntos=0, victorias=0, victorias_temp=0 WHERE chat_key=?",
+            (chat_key,)
+        ).rowcount
+    if lang == "es":
+        msg = f"🔄 *Puntos reseteados\\.*\n\n_{affected} jugador\\(es\\) afectado\\(s\\)\\. Divisiones conservadas\\._"
+    else:
+        msg = f"🔄 *Points reset\\.*\n\n_{affected} player\\(s\\) affected\\. Divisions preserved\\._"
+    await update.message.reply_text(msg, parse_mode="MarkdownV2")
+
+
 async def gi_cmd_cancelar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != BOT_OWNER_ID:
@@ -6925,6 +6946,7 @@ def main():
     app.add_handler(CommandHandler("idol",              gi_cmd_idol))
     app.add_handler(CommandHandler("giscore",           gi_cmd_score))
     app.add_handler(CommandHandler("gireset",           gi_cmd_reset))
+    app.add_handler(CommandHandler("giresetnow",        gi_cmd_reset_puntos))
     app.add_handler(CommandHandler("gicancel",          gi_cmd_cancelar))
     app.add_handler(CommandHandler("giprog",             gi_cmd_cancelar_prog))
     app.add_handler(CommandHandler("fintemporada",       gi_cmd_fintemporada))
