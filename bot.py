@@ -6328,6 +6328,7 @@ async def gi_cmd_addpuntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             target_name = row[0] if row else str(target_id)
         else:
             with get_conn() as conn:
+                # Buscar primero en gi_marcador
                 row = conn.execute(
                     "SELECT user_id, username FROM gi_marcador "
                     "WHERE chat_key=? AND LOWER(username) LIKE LOWER(?) LIMIT 1",
@@ -6335,6 +6336,16 @@ async def gi_cmd_addpuntos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ).fetchone()
             if row:
                 target_id, target_name = row[0], row[1]
+            else:
+                # Fallback: buscar en gi_participantes (usuarios nuevos que nunca ganaron)
+                with get_conn() as conn:
+                    row = conn.execute(
+                        "SELECT user_id, username FROM gi_participantes "
+                        "WHERE chat_key=? AND LOWER(username) LIKE LOWER(?) LIMIT 1",
+                        (chat_key, f"%{busqueda}%")
+                    ).fetchone()
+                if row:
+                    target_id, target_name = row[0], row[1]
 
     if target_id is None:
         await update.message.reply_text(
