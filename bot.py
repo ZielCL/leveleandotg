@@ -6153,13 +6153,13 @@ def generar_imagen_giscore(chat_key: str, division: int):
 
         lang = get_idioma(chat_key)
         div_label = ("🥇 Primera División" if division == 1 else "🥈 Segunda División") if lang == "es"                     else ("🥇 First Division" if division == 1 else "🥈 Second Division")
-        col_pts = "Puntos" if lang == "es" else "Points"
-        col_vic = "Victorias" if lang == "es" else "Wins"
+        col_pts = "Pts"
+        col_vic = "Vic" if lang == "es" else "W"
         col_jug = "Jugador" if lang == "es" else "Player"
 
         PAD   = 20
         ROW_H = 38
-        COL_W = [36, 170, 80, 80]
+        COL_W = [36, 175, 65, 65]
 
         total_w = PAD * 2 + sum(COL_W)
         title_h = 52
