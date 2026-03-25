@@ -683,7 +683,7 @@ TEXTOS = {
         "voto_ya":                  "You already voted.",
         "voto_ok":                  "✅ Vote registered!",
         "voto_confirmado":          "✅ *{nombre}* voted\\. {faltantes}",
-        "voto_confirmado_revoto":   "✅ *{nombre}* voted in the re-vote\\. {faltantes}",
+        "voto_confirmado_revoto":   "✅ *{nombre}* voted in the re\\-vote\\. {faltantes}",
         "faltan_votos":             "*{n}* votes remaining\\.",
         "no_revotacion":            "No re-vote active.",
         "voto_invalido":            "Invalid vote.",
