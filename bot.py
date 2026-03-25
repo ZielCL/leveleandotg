@@ -6030,7 +6030,7 @@ async def gi_cmd_fintemporada(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     with get_conn() as conn:
         todos = conn.execute(
             "SELECT user_id, username, puntos, division, victorias_temp "
-            "FROM gi_marcador WHERE chat_key=? ORDER BY puntos DESC",
+            "FROM gi_marcador WHERE chat_key=? ORDER BY puntos DESC, victorias DESC",
             (chat_key,)
         ).fetchall()
 
@@ -6141,7 +6141,7 @@ def generar_imagen_giscore(chat_key: str, division: int):
         with get_conn() as conn:
             rows = conn.execute(
                 "SELECT user_id, username, puntos, victorias FROM gi_marcador "
-                "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC",
+                "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC, victorias DESC",
                 (chat_key, division)
             ).fetchall()
 
@@ -6237,7 +6237,7 @@ async def gi_cmd_score(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             with get_conn() as conn:
                 rows = conn.execute(
                     "SELECT username, puntos, victorias FROM gi_marcador "
-                    "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC",
+                    "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC, victorias DESC",
                     (chat_key, div)
                 ).fetchall()
             if not rows:
