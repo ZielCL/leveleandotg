@@ -6141,6 +6141,12 @@ def _calcular_zonas_giscore(rows_div1: list, rows_div2: list) -> tuple:
     """Calcula qué user_ids están en zona de descenso (div1) y ascenso (div2).
 
     Reglas idénticas a gi_cmd_fintemporada:
+
+    Con una sola división (primera temporada):
+    - Bajan la mitad inferior: los últimos n - (n+1)//2 jugadores
+    - Se muestra para que los jugadores sepan quiénes irían a segunda
+
+    Con dos divisiones:
     - Div1: bajan los últimos 3 activos (victorias_temp > 0) + todos los inactivos (victorias_temp == 0)
     - Div2: suben los primeros N para equilibrar (objetivo: primera ≥ mitad del total)
 
@@ -6150,18 +6156,26 @@ def _calcular_zonas_giscore(rows_div1: list, rows_div2: list) -> tuple:
     if not rows_div1 and not rows_div2:
         return set(), set()
 
-    # Solo calcular zonas si hay segunda división
+    # ── Solo una división: primera temporada ──
     if not rows_div2:
-        return set(), set()
+        n = len(rows_div1)
+        if n < 2:
+            return set(), set()
+        # rows_div1 ya viene ordenado por puntos DESC
+        # Los primeros (n+1)//2 se quedan en primera, el resto baja
+        corte = (n + 1) // 2
+        ids_descenso = {r[0] for r in rows_div1[corte:]}
+        return ids_descenso, set()
 
-    # ── Zona de descenso en div1 ──
+    # ── Dos divisiones: temporadas siguientes ──
+    # Zona de descenso en div1
     inactivos_div1 = [r for r in rows_div1 if r[4] == 0]   # victorias_temp == 0
     activos_div1   = [r for r in rows_div1 if r[4]  > 0]
     activos_sorted = sorted(activos_div1, key=lambda r: r[2])  # asc por puntos
     bajan_activos  = activos_sorted[:3]
     ids_descenso   = {r[0] for r in bajan_activos} | {r[0] for r in inactivos_div1}
 
-    # ── Zona de ascenso en div2 ──
+    # Zona de ascenso en div2
     n_div1_nuevo  = len(rows_div1) - len(ids_descenso)
     n_div2        = len(rows_div2)
     total         = n_div1_nuevo + n_div2
