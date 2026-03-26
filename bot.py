@@ -6137,39 +6137,93 @@ async def gi_cmd_fintemporada(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode="MarkdownV2")
 
 
+def _calcular_zonas_giscore(rows_div1: list, rows_div2: list) -> tuple:
+    """Calcula qué user_ids están en zona de descenso (div1) y ascenso (div2).
+
+    Reglas idénticas a gi_cmd_fintemporada:
+    - Div1: bajan los últimos 3 activos (victorias_temp > 0) + todos los inactivos (victorias_temp == 0)
+    - Div2: suben los primeros N para equilibrar (objetivo: primera ≥ mitad del total)
+
+    rows_div1/div2: [(uid, uname, puntos, victorias, victorias_temp), ...]
+    Retorna: (set_ids_descenso, set_ids_ascenso)
+    """
+    if not rows_div1 and not rows_div2:
+        return set(), set()
+
+    # Solo calcular zonas si hay segunda división
+    if not rows_div2:
+        return set(), set()
+
+    # ── Zona de descenso en div1 ──
+    inactivos_div1 = [r for r in rows_div1 if r[4] == 0]   # victorias_temp == 0
+    activos_div1   = [r for r in rows_div1 if r[4]  > 0]
+    activos_sorted = sorted(activos_div1, key=lambda r: r[2])  # asc por puntos
+    bajan_activos  = activos_sorted[:3]
+    ids_descenso   = {r[0] for r in bajan_activos} | {r[0] for r in inactivos_div1}
+
+    # ── Zona de ascenso en div2 ──
+    n_div1_nuevo  = len(rows_div1) - len(ids_descenso)
+    n_div2        = len(rows_div2)
+    total         = n_div1_nuevo + n_div2
+    objetivo_div1 = (total + 1) // 2
+    suben_n       = max(0, objetivo_div1 - n_div1_nuevo)
+    # rows_div2 ya viene ordenado por puntos DESC
+    ids_ascenso   = {r[0] for r in rows_div2[:suben_n]}
+
+    return ids_descenso, ids_ascenso
+
+
 def generar_imagen_giscore(chat_key: str, division: int):
     """Genera imagen PNG del marcador de Adivina la Idol para una división."""
     try:
         with get_conn() as conn:
+            # Traer victorias_temp para calcular zonas
             rows = conn.execute(
-                "SELECT user_id, username, puntos, victorias FROM gi_marcador "
+                "SELECT user_id, username, puntos, victorias, COALESCE(victorias_temp,0) FROM gi_marcador "
                 "WHERE chat_key=? AND COALESCE(division,1)=? ORDER BY puntos DESC, victorias DESC",
                 (chat_key, division)
+            ).fetchall()
+            # Para calcular zonas necesitamos ambas divisiones
+            rows_div1 = conn.execute(
+                "SELECT user_id, username, puntos, victorias, COALESCE(victorias_temp,0) FROM gi_marcador "
+                "WHERE chat_key=? AND COALESCE(division,1)=1 ORDER BY puntos DESC, victorias DESC",
+                (chat_key,)
+            ).fetchall()
+            rows_div2 = conn.execute(
+                "SELECT user_id, username, puntos, victorias, COALESCE(victorias_temp,0) FROM gi_marcador "
+                "WHERE chat_key=? AND division=2 ORDER BY puntos DESC, victorias DESC",
+                (chat_key,)
             ).fetchall()
 
         if not rows:
             return None
+
+        ids_descenso, ids_ascenso = _calcular_zonas_giscore(rows_div1, rows_div2)
 
         FONT_SIZE  = 22
         font       = _get_font(FONT_SIZE)
         font_bold  = _get_font(FONT_SIZE, bold=True)
         font_title = _get_font(26, bold=True)
 
-        BG     = (20,  20,  36)
-        HEADER = (49,  50,  68)
-        ROW_A  = (30,  30,  50)
-        ROW_B  = (25,  25,  44)
-        TEXT   = (220, 220, 235)
-        ACCENT = (137, 180, 250)
-        GREEN  = (166, 227, 161)
-        GRAY   = (150, 150, 170)
-        GOLD   = (255, 215,   0)
-        SILVER = (192, 192, 192)
-        BRONZE = (205, 127,  50)
-        LINE   = (69,  71,  90)
-        DIV1_C = (255, 200,  50)
-        DIV2_C = (160, 160, 200)
-        div_color = DIV1_C if division == 1 else DIV2_C
+        BG          = (20,  20,  36)
+        HEADER      = (49,  50,  68)
+        ROW_A       = (30,  30,  50)
+        ROW_B       = (25,  25,  44)
+        TEXT        = (220, 220, 235)
+        ACCENT      = (137, 180, 250)
+        GREEN       = (166, 227, 161)
+        GRAY        = (150, 150, 170)
+        GOLD        = (255, 215,   0)
+        SILVER      = (192, 192, 192)
+        BRONZE      = (205, 127,  50)
+        LINE        = (69,  71,  90)
+        DIV1_C      = (255, 200,  50)
+        DIV2_C      = (160, 160, 200)
+        DESCENSO_BG = (80,  30,  30)   # fondo rojo oscuro — zona de descenso
+        ASCENSO_BG  = (25,  60,  35)   # fondo verde oscuro — zona de ascenso
+        DESCENSO_C  = (255, 100,  80)  # texto naranja/rojo — descenso
+        ASCENSO_C   = (100, 220, 130)  # texto verde — ascenso
+        div_color   = DIV1_C if division == 1 else DIV2_C
 
         lang = get_idioma(chat_key)
         div_label = ("1a Division" if division == 1 else "2a Division") if lang == "es"                     else ("1st Division" if division == 1 else "2nd Division")
@@ -6200,16 +6254,38 @@ def generar_imagen_giscore(chat_key: str, division: int):
             draw.text((x, y + 8), col, font=font_bold, fill=ACCENT)
             x += w
 
-        for i, (uid, uname, puntos, victorias) in enumerate(rows):
+        for i, (uid, uname, puntos, victorias, vtemp) in enumerate(rows):
             y += ROW_H
-            draw.rectangle([PAD, y, total_w - PAD, y + ROW_H - 1], fill=ROW_A if i % 2 == 0 else ROW_B)
+
+            # Determinar si está en zona especial
+            en_descenso = uid in ids_descenso
+            en_ascenso  = uid in ids_ascenso
+
+            if en_descenso:
+                row_bg = DESCENSO_BG
+            elif en_ascenso:
+                row_bg = ASCENSO_BG
+            else:
+                row_bg = ROW_A if i % 2 == 0 else ROW_B
+
+            draw.rectangle([PAD, y, total_w - PAD, y + ROW_H - 1], fill=row_bg)
+
+            # Barra lateral colorida para zona especial
+            if en_descenso:
+                draw.rectangle([PAD, y, PAD + 4, y + ROW_H - 1], fill=DESCENSO_C)
+            elif en_ascenso:
+                draw.rectangle([PAD, y, PAD + 4, y + ROW_H - 1], fill=ASCENSO_C)
+
             draw.line([PAD, y + ROW_H - 1, total_w - PAD, y + ROW_H - 1], fill=LINE, width=1)
+
             pos = i + 1
             x   = PAD + 8
             pos_color = GOLD if pos == 1 else SILVER if pos == 2 else BRONZE if pos == 3 else GRAY
             draw.text((x, y + 8), str(pos), font=font_bold, fill=pos_color)
             x += COL_W[0]
-            draw_text_smart(draw, (x, y + 8), limpiar_nombre_tabla(uname)[:14], FONT_SIZE, TEXT)
+
+            nombre_color = DESCENSO_C if en_descenso else ASCENSO_C if en_ascenso else TEXT
+            draw_text_smart(draw, (x, y + 8), limpiar_nombre_tabla(uname)[:14], FONT_SIZE, nombre_color)
             x += COL_W[1]
             draw.text((x, y + 8), str(puntos), font=font_bold, fill=GREEN)
             x += COL_W[2]
