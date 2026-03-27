@@ -5510,7 +5510,7 @@ def gi_build_setup_text(setup: dict, lang: str) -> str:
     tz = setup.get("tz_offset", 0)
 
     img_v    = "✅ _cargada_" if setup.get("file_id") else no_conf
-    img2_v   = "✅ _cargada_" if setup.get("file_id_reveal") else no_conf
+    img2_v   = ("✅ _cargada \\(video\\)_" if setup.get("reveal_is_video") else "✅ _cargada_") if setup.get("file_id_reveal") else no_conf
     idol_v   = f"*{esc(setup['idol_name'])}*" if setup.get("idol_name") else no_conf
     h1_v     = f"*{esc(setup['hint1'])}*" if setup.get("hint1") else no_conf
     h2_v     = f"*{esc(setup['hint2'])}*" if setup.get("hint2") else no_conf
@@ -5600,14 +5600,15 @@ def _gi_slots_disponibles() -> list:
 def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
     tz = setup.get("tz_offset", 0)
     lbl_img    = "📸 Imagen misterio"     if lang == "es" else "📸 Mystery image"
-    lbl_rev    = "🖼 Imagen reveal"       if lang == "es" else "🖼 Reveal image"
+    lbl_rev    = "🖼 Imagen/Video reveal"  if lang == "es" else "🖼 Reveal image/video"
     lbl_idol   = "👤 Nombre de la idol"   if lang == "es" else "👤 Idol name"
     lbl_h1     = "👥 Pista 1: Miembros"  if lang == "es" else "👥 Hint 1: Members"
     lbl_h2     = "🏢 Pista 2: Empresa"   if lang == "es" else "🏢 Hint 2: Company"
     lbl_h3     = "🎤 Pista 3: Grupo"     if lang == "es" else "🎤 Hint 3: Group"
     lbl_ini    = "⏰ Inicio manual"       if lang == "es" else "⏰ Start (manual)"
     lbl_fin    = "⏹ Fin manual"          if lang == "es" else "⏹ End (manual)"
-    lbl_prev   = "👁 Vista previa"        if lang == "es" else "👁 Preview"
+    lbl_prev     = "👁 Misterio"            if lang == "es" else "👁 Mystery"
+    lbl_prev_rev = "👁 Reveal"              if lang == "es" else "👁 Reveal"
     lbl_pub    = "✅ Publicar"            if lang == "es" else "✅ Publish"
     lbl_can    = "❌ Cancelar"            if lang == "es" else "❌ Cancel"
     lbl_slots  = "🕐 Elegir horario fijo:" if lang == "es" else "🕐 Fixed time slot:"
@@ -5637,7 +5638,8 @@ def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
             InlineKeyboardButton(f"🌐 {_tz_label(tz)}",           callback_data="gi:setup:tz:0"),
             InlineKeyboardButton(f"{_tz_label(min(14,tz+1))} ▶",  callback_data="gi:setup:tz:+1"),
         ],
-        [InlineKeyboardButton(lbl_prev, callback_data="gi:setup:preview")],
+        [InlineKeyboardButton(lbl_prev,      callback_data="gi:setup:preview"),
+         InlineKeyboardButton(lbl_prev_rev,  callback_data="gi:setup:preview_reveal")],
     ]
     div = setup.get("division", 1)
     lbl_div = ("🥈 Cambiar a Segunda División" if div == 1 else "🥇 Cambiar a Primera División") if lang == "es" else \
@@ -5860,13 +5862,25 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
             pass
         # Enviar imagen reveal con el texto de fin
         if file_id_reveal:
+            with get_conn() as conn:
+                prog_reveal = conn.execute(
+                    "SELECT file_id_reveal FROM gi_programacion WHERE id=?", (ronda_init[1],)
+                ).fetchone()
+            # Detectar si es video (file_id_reveal empieza igual al de la prog)
+            # Intentar como video primero, fallback a foto
             try:
-                await bot.send_photo(
-                    chat_id, photo=file_id_reveal,
+                await bot.send_video(
+                    chat_id, video=file_id_reveal,
                     caption=txt_fin, parse_mode="MarkdownV2"
                 )
             except Exception:
-                await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
+                try:
+                    await bot.send_photo(
+                        chat_id, photo=file_id_reveal,
+                        caption=txt_fin, parse_mode="MarkdownV2"
+                    )
+                except Exception:
+                    await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
         else:
             await bot.send_message(chat_id, txt_fin, parse_mode="MarkdownV2")
 
@@ -6001,7 +6015,7 @@ async def gi_cmd_idol(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     lang = "es"
     setup = {
-        "file_id": None, "file_id_reveal": None, "idol_name": None,
+        "file_id": None, "file_id_reveal": None, "reveal_is_video": False, "idol_name": None,
         "hint1": None, "hint2": None, "hint3": None,
         "inicio_ts": None, "fin_ts": None,
         "tz_offset": 0, "esperando": None, "mensaje_id": None, "lang": lang,
@@ -6680,6 +6694,7 @@ async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     setup = {
         "file_id":       prog[2],
         "file_id_reveal":prog[3],
+        "reveal_is_video": False,  # se actualizará si el usuario re-sube
         "idol_name":     prog[1],
         "hint1":         prog[4],
         "hint2":         prog[5],
@@ -6739,7 +6754,7 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif action == "imagen_reveal":
         setup["esperando"] = "imagen_reveal"
-        msg = "Envía la foto REVEAL (la que se muestra al acertar)." if lang == "es" else "Send the REVEAL photo (shown when someone guesses correctly)."
+        msg = "Envía la foto o video REVEAL (≤4s) para cuando alguien adivine." if lang == "es" else "Send the REVEAL photo or video (≤4s) shown when someone guesses correctly."
         await query.answer(msg, show_alert=True)
         return
 
@@ -6815,6 +6830,36 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             await query.message.reply_text(f"⚠️ Error en preview: {e}")
+        return
+
+    elif action == "preview_reveal":
+        await query.answer()
+        if not setup.get("file_id_reveal"):
+            msg = "⚠️ Primero agrega una imagen/video reveal." if lang == "es" else "⚠️ Add a reveal image/video first."
+            await query.message.reply_text(msg)
+            return
+        idol   = setup.get("idol_name") or "???"
+        puntos = 5
+        txt_rev = gi_t(lang, "gi_ganador").format(
+            nombre=esc("Tú"),
+            idol=esc(idol),
+            puntos=puntos
+        )
+        try:
+            await query.message.reply_video(
+                video=setup["file_id_reveal"],
+                caption=txt_rev,
+                parse_mode="MarkdownV2"
+            )
+        except Exception:
+            try:
+                await query.message.reply_photo(
+                    photo=setup["file_id_reveal"],
+                    caption=txt_rev,
+                    parse_mode="MarkdownV2"
+                )
+            except Exception as e:
+                await query.message.reply_text(f"⚠️ Error en preview reveal: {e}")
         return
 
     elif action == "publicar":
@@ -7027,15 +7072,21 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             await ctx.bot.send_message(chat_id, txt_ganador, parse_mode="MarkdownV2")
-        # Enviar imagen reveal con el texto del ganador como caption
+        # Enviar imagen/video reveal con el texto del ganador como caption
         if file_id_reveal:
             try:
-                await ctx.bot.send_photo(
-                    chat_id, photo=file_id_reveal,
+                await ctx.bot.send_video(
+                    chat_id, video=file_id_reveal,
                     caption=txt_ganador, parse_mode="MarkdownV2"
                 )
             except Exception:
-                pass
+                try:
+                    await ctx.bot.send_photo(
+                        chat_id, photo=file_id_reveal,
+                        caption=txt_ganador, parse_mode="MarkdownV2"
+                    )
+                except Exception:
+                    pass
     else:
         # INCORRECTO
         vidas = gi_restar_vida(ronda_id, user.id)
@@ -7049,7 +7100,7 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def gi_handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Recibe fotos en privado del owner para el setup de /idol."""
+    """Recibe fotos o videos cortos en privado del owner para el setup de /idol."""
     if not update.message or update.effective_chat.type != "private":
         return
     user = update.effective_user
@@ -7059,13 +7110,31 @@ async def gi_handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not setup or setup.get("esperando") not in ("imagen", "imagen_reveal"):
         return
 
-    photo = update.message.photo[-1]
     campo_foto = setup.get("esperando", "imagen")
-    if campo_foto == "imagen_reveal":
-        setup["file_id_reveal"] = photo.file_id
+
+    # Detectar si es video o foto
+    if update.message.video and campo_foto == "imagen_reveal":
+        video = update.message.video
+        if video.duration > 4:
+            await update.message.reply_text(
+                "⚠️ El video es demasiado largo\\. Máximo 4 segundos\\." if True else
+                "⚠️ Video too long. Maximum 4 seconds.",
+                parse_mode="MarkdownV2"
+            )
+            return
+        setup["file_id_reveal"]  = video.file_id
+        setup["reveal_is_video"] = True
+        setup["esperando"] = None
+    elif update.message.photo:
+        photo = update.message.photo[-1]
+        if campo_foto == "imagen_reveal":
+            setup["file_id_reveal"]  = photo.file_id
+            setup["reveal_is_video"] = False
+        else:
+            setup["file_id"] = photo.file_id
+        setup["esperando"] = None
     else:
-        setup["file_id"] = photo.file_id
-    setup["esperando"] = None
+        return  # ni foto ni video → ignorar
     lang   = setup.get("lang", "es")
     msg_id = setup.get("mensaje_id")
 
@@ -7195,7 +7264,7 @@ def main():
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
     app.add_handler(CallbackQueryHandler(btn_idioma,          pattern="^idioma:"))
-    app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, gi_handle_photo))
+    app.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & filters.ChatType.PRIVATE, gi_handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_adivinanza))
     app.add_error_handler(error_handler)
 
