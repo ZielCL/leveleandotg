@@ -3863,7 +3863,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── Captura de texto para /idol setup (solo owner en privado) ──
     if chat and chat.type == "private" and user.id == BOT_OWNER_ID:
         gi_setup_priv = ctx.bot_data.get(f"gi_setup_{user.id}")
-        if gi_setup_priv and gi_setup_priv.get("esperando") and gi_setup_priv["esperando"] != "imagen":
+        if gi_setup_priv and gi_setup_priv.get("esperando") and gi_setup_priv["esperando"] not in ("imagen", "imagen_reveal"):
             campo_gi = gi_setup_priv["esperando"]
             lang_gi  = gi_setup_priv.get("lang", "es")
             gi_setup_priv["esperando"] = None
@@ -5862,11 +5862,6 @@ async def _gi_ronda_task(chat_key: str, ronda_id: int, bot, bot_data: dict):
             pass
         # Enviar imagen reveal con el texto de fin
         if file_id_reveal:
-            with get_conn() as conn:
-                prog_reveal = conn.execute(
-                    "SELECT file_id_reveal FROM gi_programacion WHERE id=?", (ronda_init[1],)
-                ).fetchone()
-            # Detectar si es video (file_id_reveal empieza igual al de la prog)
             # Intentar como video primero, fallback a foto
             try:
                 await bot.send_video(
