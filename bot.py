@@ -3701,6 +3701,11 @@ async def _anunciar_turno(chat_key, user_id, nombre_j, chat_id, thread_id, ctx):
 
 
 async def _nueva_ronda_pistas(chat_key, ctx, jugadores, vivos_ids, impostor_ids_set, palabra, categoria, message):
+    # Limpiar estado de votación anterior para que _timer_abrir_votacion funcione correctamente
+    ctx.bot_data.pop(f"votos_{chat_key}", None)
+    ctx.bot_data.pop(f"revotacion_{chat_key}", None)
+    ctx.bot_data.pop(f"timer_votacion_{chat_key}", None)
+
     vivos = [j for j in jugadores if j[0] in vivos_ids]
     orden = list(vivos)
     random.shuffle(orden)
@@ -6809,9 +6814,6 @@ async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "hint2": setup.get("hint2") or "?",
             "hint3": setup.get("hint3") or "?",
         }
-        # Para la preview, usamos chat_key fake para obtener idioma del owner (es)
-        caption_preview = gi_build_ronda_caption("gi_preview", fin_ts, 5, 0, hints, tz)
-        # Override idioma para preview (siempre es del owner)
         lang_preview = lang
         fin_str = _formato_hora_local(fin_ts, tz)
         cap = gi_t(lang_preview, "gi_ronda_caption").format(
