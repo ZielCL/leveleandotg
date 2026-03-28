@@ -5241,6 +5241,7 @@ GI_TEXTOS = {
         "gi_btn_salir":         "🚪 Detener participación",
         "gi_ya_participa":      "Ya estás participando.",
         "gi_unido":             "✅ ¡Ahora participas! Tienes 5 vidas.",
+        "gi_rejoin":            "✅ ¡De vuelta en la ronda! Te quedan {vidas} vida(s).",
         "gi_salido":            "👋 Dejaste de participar.",
         "gi_no_participa":      "No estás participando en esta ronda.",
         "gi_sin_vidas":         "💀 Ya no tienes vidas en esta ronda.",
@@ -5286,6 +5287,7 @@ GI_TEXTOS = {
         "gi_btn_salir":         "🚪 Leave",
         "gi_ya_participa":      "You're already participating.",
         "gi_unido":             "✅ You joined! You have 5 lives.",
+        "gi_rejoin":            "✅ Back in the round! You have {vidas} life(ves) left.",
         "gi_salido":            "👋 You left the round.",
         "gi_no_participa":      "You're not participating in this round.",
         "gi_sin_vidas":         "💀 You have no lives left in this round.",
@@ -6986,7 +6988,9 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     "UPDATE gi_participantes SET activo=1, username=? WHERE ronda_id=? AND user_id=?",
                     (nombre(user), ronda_id, user.id)
                 )
-            await query.answer(gi_t(lang, "gi_unido"), show_alert=True)
+            vidas_restantes = participante[5]  # vidas actuales del participante
+            msg_rejoin = gi_t(lang, "gi_rejoin").format(vidas=vidas_restantes)
+            await query.answer(msg_rejoin, show_alert=True)
             return
         gi_upsert_participante(ronda_id, chat_key, user.id, nombre(user))
         await query.answer(gi_t(lang, "gi_unido"), show_alert=True)
