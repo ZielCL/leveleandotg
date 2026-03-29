@@ -5571,7 +5571,8 @@ def _gi_slot_ts(ini_h: int, fin_h: int, day_offset: int = 0) -> tuple:
 
 
 def _gi_slots_disponibles() -> list:
-    """Retorna los próximos 8 slots que NO están ya programados (pendientes).
+    """Retorna los próximos 8 slots que NO están ya programados (pendientes),
+    ordenados cronológicamente.
     Cada elemento: (ini_h, fin_h, ini_ts, fin_ts, label)
     """
     # Obtener todos los inicio_ts de programaciones pendientes
@@ -5582,26 +5583,30 @@ def _gi_slots_disponibles() -> list:
             ).fetchall()
         )
 
-    disponibles = []
-    day_offset = 0
     now_utc = datetime.now(_tz.utc)
+    candidatos = []
 
-    while len(disponibles) < 8:
+    # Generar todos los slots de los próximos 14 días y ordenar por timestamp
+    for day_offset in range(14):
         for ini_h, fin_h in _GI_SLOTS_UTC:
-            ini_ts, fin_ts = _gi_slot_ts(ini_h, fin_h, day_offset)
-            # Saltar si ya pasó o está ocupado
+            # Calcular la fecha base del slot para este día calendario
+            base = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            base += timedelta(days=day_offset)
+            ini = base.replace(hour=ini_h)
+            # Para slot de medianoche (0:00) el día correcto ya está en base
+            fin_h_real = fin_h if fin_h > ini_h else fin_h + 24
+            fin = ini + timedelta(hours=(fin_h_real - ini_h))
+            ini_ts = int(ini.timestamp())
+            fin_ts = int(fin.timestamp())
             if ini_ts in ocupados or ini_ts <= now_utc.timestamp():
                 continue
             ini_dt = datetime.fromtimestamp(ini_ts, tz=_tz.utc)
             lbl = f"{ini_h:02d}:00–{fin_h:02d}:00 ({ini_dt.strftime('%d/%m')})"
-            disponibles.append((ini_h, fin_h, ini_ts, fin_ts, lbl))
-            if len(disponibles) >= 8:
-                break
-        day_offset += 1
-        if day_offset > 30:  # seguro contra loop infinito
-            break
+            candidatos.append((ini_h, fin_h, ini_ts, fin_ts, lbl))
 
-    return disponibles
+    # Ordenar cronológicamente y devolver los primeros 8
+    candidatos.sort(key=lambda x: x[2])
+    return candidatos[:8]
 
 
 def gi_build_setup_keyboard(setup: dict, lang: str) -> list:
