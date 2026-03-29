@@ -6593,7 +6593,7 @@ async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
         keyboard.append([
             InlineKeyboardButton(f"✏️ Editar: {idol}", callback_data=f"gi:editprog:{pid}"),
-            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:cancelarprog:{pid}"),
+            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:preguntacancelprog:{pid}"),
         ])
 
     texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
@@ -7185,12 +7185,12 @@ async def gi_cmd_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for prog in pendientes:
         pid, idol, ini_ts, fin_ts, tz = prog
-        ini_str = _formato_hora_local(ini_ts, tz or 0)
+        ini_str = _formato_fecha_hora_local(ini_ts, tz or 0)
         fin_str = _formato_hora_local(fin_ts, tz or 0)
         lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
         keyboard.append([
             InlineKeyboardButton(f"✏️ Editar: {idol}", callback_data=f"gi:editprog:{pid}"),
-            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:cancelarprog:{pid}"),
+            InlineKeyboardButton(f"❌ Cancelar: {idol}", callback_data=f"gi:preguntacancelprog:{pid}"),
         ])
 
     texto = "📋 *Programaciones pendientes:*\n\n" + "\n".join(lineas)
@@ -7198,6 +7198,114 @@ async def gi_cmd_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         texto, parse_mode="MarkdownV2",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+
+async def gi_btn_preguntar_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Muestra confirmación antes de cancelar una programación GI."""
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer("⚠️ Solo el owner puede cancelar.", show_alert=True)
+        return
+
+    prog_id = int(query.data.split(":")[2])
+
+    with get_conn() as conn:
+        prog = conn.execute(
+            "SELECT idol_name, inicio_ts, tz_offset FROM gi_programacion WHERE id=? AND estado='pendiente'",
+            (prog_id,)
+        ).fetchone()
+
+    if not prog:
+        await query.answer("Esta programación ya no está pendiente.", show_alert=True)
+        return
+
+    idol_name = prog[0]
+    ini_str   = _formato_fecha_hora_local(prog[1], prog[2] or 0)
+
+    await query.answer()
+
+    # Reemplazar el teclado completo con la fila de confirmación para esa idol
+    markup = query.message.reply_markup
+    if not markup:
+        return
+
+    new_rows = []
+    for row in markup.inline_keyboard:
+        # ¿Esta fila corresponde a la idol que se quiere cancelar?
+        es_fila_objetivo = any(
+            btn.callback_data == query.data for btn in row
+        )
+        if es_fila_objetivo:
+            # Sustituir por fila de confirmación
+            new_rows.append([
+                InlineKeyboardButton(
+                    f"✅ Sí, cancelar {idol_name}",
+                    callback_data=f"gi:cancelarprog:{prog_id}"
+                ),
+                InlineKeyboardButton(
+                    "↩️ No",
+                    callback_data=f"gi:volverprog:{prog_id}"
+                ),
+            ])
+        else:
+            new_rows.append(row)
+
+    try:
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(new_rows)
+        )
+    except Exception:
+        pass
+
+
+async def gi_btn_volver_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Restaura el botón de cancelar original tras pulsar 'No'."""
+    query = update.callback_query
+    user  = query.from_user
+    if user.id != BOT_OWNER_ID:
+        await query.answer()
+        return
+
+    prog_id = int(query.data.split(":")[2])
+
+    with get_conn() as conn:
+        prog = conn.execute(
+            "SELECT idol_name FROM gi_programacion WHERE id=? AND estado='pendiente'",
+            (prog_id,)
+        ).fetchone()
+
+    await query.answer()
+
+    if not prog:
+        return
+
+    idol_name = prog[0]
+    markup = query.message.reply_markup
+    if not markup:
+        return
+
+    new_rows = []
+    for row in markup.inline_keyboard:
+        # ¿Esta fila tiene el botón de "Sí, cancelar" de esta idol?
+        es_fila_confirmacion = any(
+            btn.callback_data == f"gi:cancelarprog:{prog_id}" for btn in row
+        )
+        if es_fila_confirmacion:
+            new_rows.append([
+                InlineKeyboardButton(f"✏️ Editar: {idol_name}", callback_data=f"gi:editprog:{prog_id}"),
+                InlineKeyboardButton(f"❌ Cancelar: {idol_name}", callback_data=f"gi:preguntacancelprog:{prog_id}"),
+            ])
+        else:
+            new_rows.append(row)
+
+    try:
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(new_rows)
+        )
+    except Exception:
+        pass
 
 
 
@@ -7256,7 +7364,9 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_voto,            pattern="^voto:"))
     app.add_handler(CallbackQueryHandler(btn_revoto,          pattern="^revoto:"))
     app.add_handler(CallbackQueryHandler(btn_programa,         pattern="^programa:"))
-    app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog, pattern="^gi:cancelarprog:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_preguntar_cancelar_prog, pattern="^gi:preguntacancelprog:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_volver_prog,             pattern="^gi:volverprog:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_cancelar_prog,           pattern="^gi:cancelarprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_editprog,     pattern="^gi:editprog:"))
     app.add_handler(CallbackQueryHandler(gi_btn_toggle_grupo, pattern="^gi:toggle:"))
     app.add_handler(CallbackQueryHandler(btn_imp_config,      pattern="^imp_config:"))
