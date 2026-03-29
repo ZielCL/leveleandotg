@@ -6588,7 +6588,7 @@ async def gi_btn_cancelar_prog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for p in pendientes:
         pid, idol, ini_ts, fin_ts, tz = p
-        ini_str = _formato_hora_local(ini_ts, tz or 0)
+        ini_str = _formato_fecha_hora_local(ini_ts, tz or 0)
         fin_str = _formato_hora_local(fin_ts, tz or 0)
         lineas.append(f"  *{esc(idol)}* — {esc(ini_str)} → {esc(fin_str)}")
         keyboard.append([
