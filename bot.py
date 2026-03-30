@@ -5256,6 +5256,8 @@ GI_TEXTOS = {
         "gi_rejoin":            "✅ ¡De vuelta en la ronda! Te quedan {vidas} vida(s).",
         "gi_salido":            "⏸️ Participación pausada. Escribe de nuevo para reactivarte.",
         "gi_btn_pausado":       "⏸️ Participación pausada",
+        "gi_btn_reanudar":      "▶️ Reanudar",
+        "gi_btn_cancelar_pausa":"❌ Cancelar",
         "gi_no_participa":      "No estás participando en esta ronda.",
         "gi_sin_vidas":         "💀 Ya no tienes vidas en esta ronda.",
         "gi_confirmar_btn":     "✅ Confirmar respuesta",
@@ -5303,6 +5305,8 @@ GI_TEXTOS = {
         "gi_rejoin":            "✅ Back in the round! You have {vidas} life(ves) left.",
         "gi_salido":            "⏸️ Participation paused. Write again to rejoin.",
         "gi_btn_pausado":       "⏸️ Participation paused",
+        "gi_btn_reanudar":      "▶️ Resume",
+        "gi_btn_cancelar_pausa":"❌ Cancel",
         "gi_no_participa":      "You're not participating in this round.",
         "gi_sin_vidas":         "💀 You have no lives left in this round.",
         "gi_confirmar_btn":     "✅ Confirm answer",
@@ -6775,6 +6779,119 @@ async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         setup["mensaje_id"] = msg.message_id
 
 
+async def gi_btn_paused_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """El dueño pulsa [⏸️ Participación pausada] → mostrar opciones Reanudar / Cancelar."""
+    query = update.callback_query
+    user  = query.from_user
+    parts = query.data.split(":")  # gi:paused_menu:{uid}:{ronda_id}
+    owner_uid = int(parts[2])
+    ronda_id  = int(parts[3])
+
+    if user.id != owner_uid:
+        await query.answer("⚠️ Este mensaje no te corresponde.", show_alert=True)
+        return
+
+    lang = get_idioma(get_chat_key(update))
+    try:
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    gi_t(lang, "gi_btn_reanudar"),
+                    callback_data=f"gi:reanudar:{owner_uid}:{ronda_id}"
+                ),
+                InlineKeyboardButton(
+                    gi_t(lang, "gi_btn_cancelar_pausa"),
+                    callback_data=f"gi:cancelar_pausa:{owner_uid}:{ronda_id}"
+                ),
+            ]])
+        )
+    except Exception:
+        pass
+    await query.answer()
+
+
+async def gi_btn_reanudar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """El dueño pulsa [▶️ Reanudar] → reactivar participación y borrar el mensaje."""
+    query     = update.callback_query
+    user      = query.from_user
+    parts     = query.data.split(":")  # gi:reanudar:{uid}:{ronda_id}
+    owner_uid = int(parts[2])
+    ronda_id  = int(parts[3])
+
+    if user.id != owner_uid:
+        await query.answer("⚠️ Este mensaje no te corresponde.", show_alert=True)
+        return
+
+    chat_key = get_chat_key(update)
+
+    # Verificar que la ronda sigue activa
+    with get_conn() as conn:
+        ronda = conn.execute(
+            "SELECT estado FROM gi_rondas WHERE id=?", (ronda_id,)
+        ).fetchone()
+    if not ronda or ronda[0] != 'activa':
+        await query.answer("La ronda ya terminó.", show_alert=True)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Reactivar participante en DB
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE gi_participantes SET activo=1 WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user.id)
+        )
+        part = conn.execute(
+            "SELECT vidas FROM gi_participantes WHERE ronda_id=? AND user_id=?",
+            (ronda_id, user.id)
+        ).fetchone()
+    vidas = part[0] if part else 0
+
+    # Limpiar tracking del mensaje pausado
+    ctx.bot_data.pop(f"gi_paused_msg_{user.id}_{ronda_id}", None)
+
+    # Borrar el mensaje de pausa del chat
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    # Popup con vidas restantes — igual que el rejoin desde la foto principal
+    lang = get_idioma(chat_key)
+    msg_rejoin = gi_t(lang, "gi_rejoin").format(vidas=vidas)
+    await query.answer(msg_rejoin, show_alert=True)
+
+
+async def gi_btn_cancelar_pausa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """El dueño pulsa [❌ Cancelar] → restaurar el botón [⏸️ Participación pausada]."""
+    query     = update.callback_query
+    user      = query.from_user
+    parts     = query.data.split(":")  # gi:cancelar_pausa:{uid}:{ronda_id}
+    owner_uid = int(parts[2])
+    ronda_id  = int(parts[3])
+
+    if user.id != owner_uid:
+        await query.answer("⚠️ Este mensaje no te corresponde.", show_alert=True)
+        return
+
+    lang = get_idioma(get_chat_key(update))
+    try:
+        await query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    gi_t(lang, "gi_btn_pausado"),
+                    callback_data=f"gi:paused_menu:{owner_uid}:{ronda_id}"
+                )
+            ]])
+        )
+    except Exception:
+        pass
+    await query.answer()
+
+
+
 async def gi_btn_noop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handler vacío para botones decorativos (ej: 'Participación pausada')."""
     await update.callback_query.answer()
@@ -7067,10 +7184,14 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         gi_desactivar_participante(ronda_id, user.id)
         # Editar los botones del mensaje de confirmación a estado "pausado"
+        # El callback incluye user_id y ronda_id para verificar ownership y poder reanudar
         try:
             await query.message.edit_reply_markup(
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(gi_t(lang, "gi_btn_pausado"), callback_data="gi:noop")
+                    InlineKeyboardButton(
+                        gi_t(lang, "gi_btn_pausado"),
+                        callback_data=f"gi:paused_menu:{user.id}:{ronda_id}"
+                    )
                 ]])
             )
         except Exception:
@@ -7463,6 +7584,9 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_imp_config,      pattern="^imp_config:"))
     app.add_handler(CallbackQueryHandler(owner_btn_msg_grupo, pattern="^owner:msg:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_paused_menu,  pattern="^gi:paused_menu:\\d+:\\d+$"))
+    app.add_handler(CallbackQueryHandler(gi_btn_reanudar,     pattern="^gi:reanudar:\\d+:\\d+$"))
+    app.add_handler(CallbackQueryHandler(gi_btn_cancelar_pausa, pattern="^gi:cancelar_pausa:\\d+:\\d+$"))
     app.add_handler(CallbackQueryHandler(gi_btn_noop,        pattern="^gi:noop$"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir:\\d+$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
