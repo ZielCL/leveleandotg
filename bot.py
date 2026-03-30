@@ -3969,11 +3969,23 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                             callback_data="gi:salir"
                         )],
                     ]
-                    await update.message.reply_text(
+                    # Borrar mensaje de confirmación anterior si existe
+                    prev_confirm = ctx.bot_data.pop(f"gi_confirm_msg_{user.id}_{gi_ronda_id}", None)
+                    if prev_confirm:
+                        try:
+                            await ctx.bot.delete_message(
+                                chat_id=update.effective_chat.id,
+                                message_id=prev_confirm
+                            )
+                        except Exception:
+                            pass  # Ya borrado o expirado — ignorar
+                    # Enviar nuevo mensaje de confirmación y guardar su message_id
+                    msg_confirm = await update.message.reply_text(
                         gi_t(lang_gi2, "gi_confirmar_msg").format(respuesta=esc(texto)),
                         parse_mode="MarkdownV2",
                         reply_markup=InlineKeyboardMarkup(kbd_gi2)
                     )
+                    ctx.bot_data[f"gi_confirm_msg_{user.id}_{gi_ronda_id}"] = msg_confirm.message_id
                     return
 
     partida = get_partida(chat_key)
@@ -5238,11 +5250,12 @@ GI_TEXTOS = {
         "gi_hint3_reveal":      "🎤 *Pista 3:* El grupo es *{hint3}*",
         "gi_nueva_pista":       "💡 *¡Nueva pista revelada\\!*\n\n{pista}",
         "gi_btn_participar":    "✋ Participar",
-        "gi_btn_salir":         "🚪 Detener participación",
+        "gi_btn_salir":         "⏸️ Pausar participación",
         "gi_ya_participa":      "Ya estás participando.",
         "gi_unido":             "✅ ¡Ahora participas! Tienes 5 vidas.",
         "gi_rejoin":            "✅ ¡De vuelta en la ronda! Te quedan {vidas} vida(s).",
-        "gi_salido":            "👋 Dejaste de participar.",
+        "gi_salido":            "⏸️ Participación pausada. Escribe de nuevo para reactivarte.",
+        "gi_btn_pausado":       "⏸️ Participación pausada",
         "gi_no_participa":      "No estás participando en esta ronda.",
         "gi_sin_vidas":         "💀 Ya no tienes vidas en esta ronda.",
         "gi_confirmar_btn":     "✅ Confirmar respuesta",
@@ -5284,11 +5297,12 @@ GI_TEXTOS = {
         "gi_hint3_reveal":      "🎤 *Hint 3:* The group is *{hint3}*",
         "gi_nueva_pista":       "💡 *New hint revealed\\!*\n\n{pista}",
         "gi_btn_participar":    "✋ Join",
-        "gi_btn_salir":         "🚪 Leave",
+        "gi_btn_salir":         "⏸️ Pause participation",
         "gi_ya_participa":      "You're already participating.",
         "gi_unido":             "✅ You joined! You have 5 lives.",
         "gi_rejoin":            "✅ Back in the round! You have {vidas} life(ves) left.",
-        "gi_salido":            "👋 You left the round.",
+        "gi_salido":            "⏸️ Participation paused. Write again to rejoin.",
+        "gi_btn_pausado":       "⏸️ Participation paused",
         "gi_no_participa":      "You're not participating in this round.",
         "gi_sin_vidas":         "💀 You have no lives left in this round.",
         "gi_confirmar_btn":     "✅ Confirm answer",
@@ -5687,10 +5701,29 @@ def gi_build_ronda_caption(chat_key: str, fin_ts: int, puntos: int,
 def gi_build_ronda_keyboard(lang: str) -> list:
     return [[
         InlineKeyboardButton(gi_t(lang, "gi_btn_participar"), callback_data="gi:participar"),
-        InlineKeyboardButton(gi_t(lang, "gi_btn_salir"),      callback_data="gi:salir"),
     ]]
 
 # ── Tasks GI ──────────────────────────────────────────────────
+
+async def _gi_limpiar_mensajes_ronda(ronda_id: int, chat_id: int, bot, bot_data: dict):
+    """Borra todos los mensajes de confirmación y de vidas/eliminación
+    que el bot envió a los participantes de una ronda.
+    Se llama cuando alguien adivina correctamente para limpiar el chat.
+    """
+    with get_conn() as conn:
+        participantes = conn.execute(
+            "SELECT user_id FROM gi_participantes WHERE ronda_id=?", (ronda_id,)
+        ).fetchall()
+    for (uid,) in participantes:
+        for key in [f"gi_confirm_msg_{uid}_{ronda_id}", f"gi_lives_msg_{uid}_{ronda_id}"]:
+            msg_id = bot_data.pop(key, None)
+            if msg_id:
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                except Exception:
+                    pass  # Mensaje ya borrado o muy antiguo — ignorar
+
+
 
 async def _gi_countdown(prog_id: int, bot, bot_data: dict):
     """Espera hasta inicio_ts y publica la ronda en todos los grupos."""
@@ -6738,6 +6771,12 @@ async def gi_btn_editprog(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         setup["mensaje_id"] = msg.message_id
 
 
+async def gi_btn_noop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handler vacío para botones decorativos (ej: 'Participación pausada')."""
+    await update.callback_query.answer()
+
+
+
 async def gi_btn_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user  = query.from_user
@@ -7006,6 +7045,17 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await query.answer(gi_t(lang, "gi_no_participa"), show_alert=True)
             return
         gi_desactivar_participante(ronda_id, user.id)
+        # Editar los botones del mensaje de confirmación a estado "pausado"
+        try:
+            await query.message.edit_reply_markup(
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(gi_t(lang, "gi_btn_pausado"), callback_data="gi:noop")
+                ]])
+            )
+        except Exception:
+            pass
+        # Limpiar tracking del confirm_msg (el mensaje fue editado, no borrado)
+        ctx.bot_data.pop(f"gi_confirm_msg_{user.id}_{ronda_id}", None)
         await query.answer(gi_t(lang, "gi_salido"), show_alert=True)
 
 
@@ -7051,13 +7101,15 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg_id_ronda    = ronda[17]
 
     await query.answer()
+    # Borrar el mensaje de confirmación y limpiar su tracking
+    ctx.bot_data.pop(f"gi_confirm_msg_{user.id}_{ronda_id}", None)
     try:
         await query.message.delete()
     except Exception:
         pass
 
     if normalizar(respuesta) == normalizar(idol_name):
-        # ¡CORRECTO!
+        # ¡CORRECTO! — limpiar todos los mensajes de la ronda antes de anunciar
         with get_conn() as conn:
             conn.execute(
                 "UPDATE gi_rondas SET estado='terminada', ganador_id=?, ganador_nombre=? WHERE id=?",
@@ -7066,6 +7118,8 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         tarea = ctx.bot_data.pop(f"gi_ronda_{chat_key}", None)
         if tarea:
             tarea.cancel()
+        # Limpiar mensajes de confirmación y vidas de todos los participantes
+        await _gi_limpiar_mensajes_ronda(ronda_id, chat_id, ctx.bot, ctx.bot_data)
         gi_sumar_puntos(chat_key, user.id, nombre(user), puntos_actuales)
 
         txt_ganador = gi_t(lang, "gi_ganador").format(
@@ -7094,15 +7148,24 @@ async def gi_btn_confirmar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
     else:
-        # INCORRECTO
+        # INCORRECTO — borrar mensaje de vidas anterior y enviar el nuevo
+        prev_lives = ctx.bot_data.pop(f"gi_lives_msg_{user.id}_{ronda_id}", None)
+        if prev_lives:
+            try:
+                await ctx.bot.delete_message(chat_id=chat_id, message_id=prev_lives)
+            except Exception:
+                pass  # Ya borrado o expirado — ignorar
         vidas = gi_restar_vida(ronda_id, user.id)
         if vidas <= 0:
             gi_desactivar_participante(ronda_id, user.id)
             txt_elim = gi_t(lang, "gi_eliminado").format(nombre=esc(nombre(user)))
-            await ctx.bot.send_message(chat_id, txt_elim, parse_mode="MarkdownV2")
+            msg_lives = await ctx.bot.send_message(chat_id, txt_elim, parse_mode="MarkdownV2")
+            # El mensaje de eliminación queda permanente hasta que alguien adivine
+            ctx.bot_data[f"gi_lives_msg_{user.id}_{ronda_id}"] = msg_lives.message_id
         else:
             txt_mal = gi_t(lang, "gi_incorrecto").format(vidas=vidas)
-            await ctx.bot.send_message(chat_id, txt_mal, parse_mode="MarkdownV2")
+            msg_lives = await ctx.bot.send_message(chat_id, txt_mal, parse_mode="MarkdownV2")
+            ctx.bot_data[f"gi_lives_msg_{user.id}_{ronda_id}"] = msg_lives.message_id
 
 
 async def gi_handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -7377,6 +7440,7 @@ def main():
     app.add_handler(CallbackQueryHandler(btn_imp_config,      pattern="^imp_config:"))
     app.add_handler(CallbackQueryHandler(owner_btn_msg_grupo, pattern="^owner:msg:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
+    app.add_handler(CallbackQueryHandler(gi_btn_noop,        pattern="^gi:noop$"))
     app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
     app.add_handler(CallbackQueryHandler(btn_idioma,          pattern="^idioma:"))
