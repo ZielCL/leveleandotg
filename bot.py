@@ -3966,7 +3966,7 @@ async def handle_adivinanza(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         )],
                         [InlineKeyboardButton(
                             gi_t(lang_gi2, "gi_btn_salir"),
-                            callback_data="gi:salir"
+                            callback_data=f"gi:salir:{user.id}"
                         )],
                     ]
                     # Borrar mensaje de confirmación anterior si existe
@@ -5715,7 +5715,11 @@ async def _gi_limpiar_mensajes_ronda(ronda_id: int, chat_id: int, bot, bot_data:
             "SELECT user_id FROM gi_participantes WHERE ronda_id=?", (ronda_id,)
         ).fetchall()
     for (uid,) in participantes:
-        for key in [f"gi_confirm_msg_{uid}_{ronda_id}", f"gi_lives_msg_{uid}_{ronda_id}"]:
+        for key in [
+            f"gi_confirm_msg_{uid}_{ronda_id}",
+            f"gi_paused_msg_{uid}_{ronda_id}",
+            f"gi_lives_msg_{uid}_{ronda_id}",
+        ]:
             msg_id = bot_data.pop(key, None)
             if msg_id:
                 try:
@@ -7020,6 +7024,15 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await query.answer(msg_div_plain, show_alert=True)
             return
 
+    # Para gi:salir el callback incluye el user_id dueño del mensaje: gi:salir:{uid}
+    # Verificar que quien pulsa es el dueño — si no, ignorar silenciosamente
+    if query.data.startswith("gi:salir:"):
+        owner_uid = int(query.data.split(":")[2])
+        if user.id != owner_uid:
+            await query.answer("⚠️ Este mensaje no te corresponde.", show_alert=True)
+            return
+        action = "gi:salir"  # Normalizar para el resto del handler
+
     if action == "gi:participar":
         participante = gi_get_participante(ronda_id, user.id)
         if participante:
@@ -7032,6 +7045,14 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     "UPDATE gi_participantes SET activo=1, username=? WHERE ronda_id=? AND user_id=?",
                     (nombre(user), ronda_id, user.id)
                 )
+            # Borrar el mensaje pausado del chat ahora que el usuario vuelve a participar
+            chat_id_rej = update.effective_chat.id if update.effective_chat else None
+            paused_msg = ctx.bot_data.pop(f"gi_paused_msg_{user.id}_{ronda_id}", None)
+            if paused_msg and chat_id_rej:
+                try:
+                    await query.bot.delete_message(chat_id=chat_id_rej, message_id=paused_msg)
+                except Exception:
+                    pass  # Ya borrado o expirado — ignorar
             vidas_restantes = participante[5]  # vidas actuales del participante
             msg_rejoin = gi_t(lang, "gi_rejoin").format(vidas=vidas_restantes)
             await query.answer(msg_rejoin, show_alert=True)
@@ -7054,8 +7075,10 @@ async def gi_btn_participar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             pass
-        # Limpiar tracking del confirm_msg (el mensaje fue editado, no borrado)
-        ctx.bot_data.pop(f"gi_confirm_msg_{user.id}_{ronda_id}", None)
+        # Mover tracking: confirm_msg → paused_msg para poder borrarlo si el usuario vuelve
+        msg_id_paused = ctx.bot_data.pop(f"gi_confirm_msg_{user.id}_{ronda_id}", None)
+        if msg_id_paused:
+            ctx.bot_data[f"gi_paused_msg_{user.id}_{ronda_id}"] = msg_id_paused
         await query.answer(gi_t(lang, "gi_salido"), show_alert=True)
 
 
@@ -7441,7 +7464,7 @@ def main():
     app.add_handler(CallbackQueryHandler(owner_btn_msg_grupo, pattern="^owner:msg:"))
     app.add_handler(CallbackQueryHandler(gi_btn_setup,        pattern="^gi:setup:"))
     app.add_handler(CallbackQueryHandler(gi_btn_noop,        pattern="^gi:noop$"))
-    app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir$"))
+    app.add_handler(CallbackQueryHandler(gi_btn_participar,   pattern="^gi:participar$|^gi:salir:\\d+$"))
     app.add_handler(CallbackQueryHandler(gi_btn_confirmar,    pattern="^gi:confirmar:"))
     app.add_handler(CallbackQueryHandler(btn_idioma,          pattern="^idioma:"))
     app.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & filters.ChatType.PRIVATE, gi_handle_photo))
