@@ -5416,7 +5416,7 @@ def gi_registrar_grupo(chat_id: int, chat_title: str, chat_key: str):
         with get_conn() as conn:
             # INSERT OR IGNORE preserva gi_activo y chat_key si el grupo ya existía
             conn.execute(
-                "INSERT OR IGNORE INTO gi_grupos (chat_id, chat_title, chat_key, gi_activo, ultimo_msg) VALUES (?,?,?,1,CURRENT_TIMESTAMP)",
+                "INSERT OR IGNORE INTO gi_grupos (chat_id, chat_title, chat_key, gi_activo, ultimo_msg) VALUES (?,?,?,0,CURRENT_TIMESTAMP)",
                 (chat_id, chat_title or "?", chat_key_root)
             )
             # Actualizar solo título y timestamp — NO tocar chat_key ni gi_activo
@@ -5952,19 +5952,13 @@ async def gi_cmd_grupos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     with get_conn() as conn:
-        gi_rows  = conn.execute(
+        gi_rows = conn.execute(
             "SELECT chat_id, chat_title FROM gi_grupos ORDER BY ultimo_msg DESC"
-        ).fetchall()
-        imp_rows = conn.execute(
-            "SELECT DISTINCT chat_id FROM partidas WHERE chat_id IS NOT NULL"
         ).fetchall()
 
     seen = {}
     for chat_id, title in gi_rows:
         seen[chat_id] = title or str(chat_id)
-    for (chat_id,) in imp_rows:
-        if chat_id and chat_id not in seen:
-            seen[chat_id] = str(chat_id)
 
     if not seen:
         await update.message.reply_text("📭 El bot no ha registrado ningún grupo aún.")
